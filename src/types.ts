@@ -40,7 +40,10 @@ export interface ExtensionContextLike {
     setStatus?: (key: string, value: string | undefined) => void;
   };
   model?: unknown;
-  modelRegistry?: unknown;
+  modelRegistry?: {
+    find?: (provider: string, id: string) => unknown;
+    getAvailable?: () => unknown[] | Promise<unknown[]>;
+  };
   sessionManager?: {
     getEntries?: () => unknown[];
     getBranch?: () => unknown[];

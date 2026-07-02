@@ -10,6 +10,7 @@ type ExtensionAPI = {
     name: string,
     definition: {
       description: string;
+      getArgumentCompletions?: (argumentPrefix: string) => Array<{ value: string; label?: string; description?: string }> | null | Promise<Array<{ value: string; label?: string; description?: string }> | null>;
       handler: (args: string, ctx: ExtensionContextLike) => Promise<void> | void;
     },
   ) => void;
@@ -24,6 +25,10 @@ function statusText(config: AutoReviewConfig): string | undefined {
   return `auto-review:${config.mode}`;
 }
 
+function stateText(config: AutoReviewConfig): "off" | "fallback" | "auto" {
+  return config.enabled ? config.mode : "off";
+}
+
 function notify(ctx: ExtensionContextLike, message: string, type: "info" | "warning" | "error" = "info"): void {
   ctx.ui?.notify?.(message, type);
 }
@@ -34,6 +39,65 @@ function setStatus(ctx: ExtensionContextLike, config: AutoReviewConfig): void {
 
 function parseCommand(args: string): string {
   return args.trim().split(/\s+/)[0]?.toLowerCase() || "status";
+}
+
+function parseCommandRest(args: string): string {
+  const trimmed = args.trim();
+  const firstSpace = trimmed.search(/\s/);
+  return firstSpace < 0 ? "" : trimmed.slice(firstSpace).trim();
+}
+
+function classifierModelText(config: AutoReviewConfig): string {
+  return config.classifierModel ?? "current";
+}
+
+function modelLabel(model: unknown): string | null {
+  if (!model || typeof model !== "object") {
+    return null;
+  }
+  const record = model as Record<string, unknown>;
+  const provider = typeof record.provider === "string" ? record.provider : "";
+  const id = typeof record.id === "string" ? record.id : "";
+  return provider && id ? `${provider}/${id}` : id || null;
+}
+
+const COMMAND_ARGUMENTS = [
+  { value: "status", label: "status", description: "Show current state and approval model" },
+  { value: "off", label: "off", description: "Disable automatic approval" },
+  { value: "fallback", label: "fallback", description: "AI review, then human approval on failure or denial" },
+  { value: "auto", label: "auto", description: "AI review only; fail closed on failure or denial" },
+  { value: "model", label: "model", description: "Select approval classifier model" },
+  { value: "model current", label: "model current", description: "Use the active Pi session model for approval" },
+];
+
+function getAutoReviewArgumentCompletions(argumentPrefix: string): Array<{ value: string; label: string; description: string }> | null {
+  const normalized = argumentPrefix.trimStart().toLowerCase();
+  const filtered = COMMAND_ARGUMENTS.filter((item) => (
+    item.value.startsWith(normalized) || item.label.includes(normalized)
+  ));
+  return filtered.length ? filtered : null;
+}
+
+async function selectClassifierModel(ctx: ExtensionContextLike, config: AutoReviewConfig): Promise<string | null | undefined> {
+  if (!ctx.ui?.select) {
+    notify(ctx, `approval classifier model: ${classifierModelText(config)}`);
+    return undefined;
+  }
+
+  const available = await Promise.resolve(ctx.modelRegistry?.getAvailable?.() ?? []);
+  const labels = available
+    .map(modelLabel)
+    .filter((label): label is string => Boolean(label));
+  const options = ["current", ...labels];
+  const selected = await ctx.ui.select(
+    [
+      "Select approval classifier model",
+      "",
+      `Current setting: ${classifierModelText(config)}`,
+    ].join("\n"),
+    options,
+  );
+  return selected === "current" ? null : selected;
 }
 
 export default function piAutoReviewExtension(pi: ExtensionAPI): void {
@@ -66,43 +130,62 @@ export default function piAutoReviewExtension(pi: ExtensionAPI): void {
     setStatus(ctx, config);
   }
 
-  pi.registerCommand?.("auto-review", {
-    description: "Configure pi-auto-review automatic approval behavior",
-    handler: async (args, ctx) => {
-      lastContext = ctx;
-      refresh(ctx);
-      const command = parseCommand(args);
-      switch (command) {
-        case "on":
-          persist({ ...config, enabled: true }, ctx);
-          notify(ctx, `pi-auto-review enabled in ${config.mode} mode.`);
+  async function runCommand(command: string, rest: string, ctx: ExtensionContextLike): Promise<void> {
+    lastContext = ctx;
+    refresh(ctx);
+    switch (command) {
+      case "off":
+        persist({ ...config, enabled: false }, ctx);
+        approvals.clear();
+        notify(ctx, "pi-auto-review state: off.");
+        break;
+      case "fallback":
+        persist({ ...config, enabled: true, mode: "fallback" }, ctx);
+        notify(ctx, "pi-auto-review state: fallback.");
+        break;
+      case "auto":
+        persist({ ...config, enabled: true, mode: "auto" }, ctx);
+        notify(ctx, "pi-auto-review state: auto.");
+        break;
+      case "model": {
+        if (!rest) {
+          const selected = await selectClassifierModel(ctx, config);
+          if (selected === undefined) {
+            break;
+          }
+          persist({ ...config, classifierModel: selected }, ctx);
+          notify(ctx, `approval classifier model: ${selected ?? "current"}`);
           break;
-        case "off":
-          persist({ ...config, enabled: false }, ctx);
-          approvals.clear();
-          notify(ctx, "pi-auto-review disabled.");
+        }
+        if (rest === "current" || rest === "default") {
+          persist({ ...config, classifierModel: null }, ctx);
+          notify(ctx, "approval classifier model: current");
           break;
-        case "fallback":
-          persist({ ...config, enabled: true, mode: "fallback" }, ctx);
-          notify(ctx, "pi-auto-review enabled in fallback mode.");
-          break;
-        case "auto":
-          persist({ ...config, enabled: true, mode: "auto" }, ctx);
-          notify(ctx, "pi-auto-review enabled in auto mode.");
-          break;
-        case "status":
-        default:
-          notify(
-            ctx,
-            [
-              `pi-auto-review: ${config.enabled ? "enabled" : "disabled"}`,
-              `mode: ${config.mode}`,
-              `config: ${configPath()}`,
-              `audit log: ${logPath()}`,
-            ].join("\n"),
-          );
-          break;
+        }
+        persist({ ...config, classifierModel: rest }, ctx);
+        notify(ctx, `approval classifier model: ${rest}`);
+        break;
       }
+      case "status":
+      default:
+        notify(
+          ctx,
+          [
+            `state: ${stateText(config)}`,
+            `approval classifier model: ${classifierModelText(config)}`,
+            `config: ${configPath()}`,
+            `audit log: ${logPath()}`,
+          ].join("\n"),
+        );
+        break;
+    }
+  }
+
+  pi.registerCommand?.("auto-review", {
+    description: "args: status | off | fallback | auto | model",
+    getArgumentCompletions: getAutoReviewArgumentCompletions,
+    handler: async (args, ctx) => {
+      await runCommand(parseCommand(args), parseCommandRest(args), ctx);
     },
   });
 

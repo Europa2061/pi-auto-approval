@@ -94,6 +94,41 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+function splitModelRef(modelRef: string, currentModel: Record<string, unknown>): { provider?: string; id: string } {
+  const slashIndex = modelRef.indexOf("/");
+  if (slashIndex > 0) {
+    return {
+      provider: modelRef.slice(0, slashIndex),
+      id: modelRef.slice(slashIndex + 1),
+    };
+  }
+  return {
+    provider: typeof currentModel.provider === "string" ? currentModel.provider : undefined,
+    id: modelRef,
+  };
+}
+
+function resolveClassifierModel(ctx: ExtensionContextLike, config: AutoReviewConfig): unknown {
+  const currentModel = ctx.model;
+  if (!config.classifierModel) {
+    return currentModel;
+  }
+
+  const currentModelRecord = toRecord(currentModel);
+  const { provider, id } = splitModelRef(config.classifierModel, currentModelRecord);
+  const registry = toRecord(ctx.modelRegistry);
+  if (provider && typeof registry.find === "function") {
+    const found = registry.find(provider, id);
+    if (found) {
+      return found;
+    }
+  }
+
+  return provider
+    ? { ...currentModelRecord, provider, id }
+    : { ...currentModelRecord, id };
+}
+
 export async function classifyAction(
   ctx: ExtensionContextLike,
   config: AutoReviewConfig,
@@ -101,7 +136,7 @@ export async function classifyAction(
   client?: ClassifierClient,
 ): Promise<ReviewDecision> {
   const completeSimple = client ?? await loadCompleteSimple();
-  const model = config.classifierModel ? { ...(toRecord(ctx.model)), id: config.classifierModel } : ctx.model;
+  const model = resolveClassifierModel(ctx, config);
   if (!model) {
     throw new Error("No active model is available for auto review.");
   }

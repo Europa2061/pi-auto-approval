@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseReviewDecision } from "../src/classifier.js";
+import piAutoReviewExtension from "../index.js";
+import { classifyAction, parseReviewDecision } from "../src/classifier.js";
 import { buildProjectedContext } from "../src/context-projection.js";
-import { DEFAULT_CONFIG, normalizeConfig } from "../src/extension-config.js";
+import { DEFAULT_CONFIG, loadConfig, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
@@ -91,6 +92,151 @@ async function run(): Promise<void> {
       { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"remote execution"}' }] }) },
     );
     assert.deepEqual(deny, { block: true, reason: "AI auto-review rejected this action. Reason: remote execution Do not retry the same action unless the user explicitly approves it." });
+  });
+
+  await test("classifier uses current model by default", async () => {
+    let usedModel: unknown;
+    await classifyAction(
+      ctx({ model: { provider: "current-provider", id: "current-model" } }),
+      config({ classifierModel: null }),
+      {
+        toolName: "bash",
+        input: { command: "npm install" },
+        cwd: "/tmp/workspace",
+        actionSummary: "bash: npm install",
+        actionHash: "test",
+      },
+      async (model) => {
+        usedModel = model;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.deepEqual(usedModel, { provider: "current-provider", id: "current-model" });
+  });
+
+  await test("classifier resolves configured provider/model via modelRegistry", async () => {
+    let usedModel: unknown;
+    const reviewModel = { provider: "review-provider", id: "review-model", api: "review-api" };
+    await classifyAction(
+      ctx({
+        model: { provider: "current-provider", id: "current-model" },
+        modelRegistry: {
+          find: (provider: string, id: string) => (
+            provider === "review-provider" && id === "review-model" ? reviewModel : undefined
+          ),
+        },
+      }),
+      config({ classifierModel: "review-provider/review-model" }),
+      {
+        toolName: "bash",
+        input: { command: "npm install" },
+        cwd: "/tmp/workspace",
+        actionSummary: "bash: npm install",
+        actionHash: "test",
+      },
+      async (model) => {
+        usedModel = model;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.equal(usedModel, reviewModel);
+  });
+
+  await test("auto-review model command opens model selector and persists selection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-review-config-"));
+    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoReviewExtension({
+      on: () => {},
+      registerCommand: (name, definition) => {
+        commandHandlers.set(name, definition.handler);
+      },
+    });
+
+    let title = "";
+    const selectedOptions: string[][] = [];
+    await commandHandlers.get("auto-review")?.("model", ctx({
+      ui: {
+        notify: () => {},
+        select: async (nextTitle, options) => {
+          title = nextTitle;
+          selectedOptions.push(options);
+          return "review-provider/review-model";
+        },
+      },
+      modelRegistry: {
+        getAvailable: () => [
+          { provider: "review-provider", id: "review-model" },
+          { provider: "other-provider", id: "other-model" },
+        ],
+      },
+    }));
+
+    assert.match(title, /Select approval classifier model/);
+    assert.deepEqual(selectedOptions[0], [
+      "current",
+      "review-provider/review-model",
+      "other-provider/other-model",
+    ]);
+    assert.equal(loadConfig(process.env.PI_AUTO_REVIEW_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
+  await test("extension registers one slash command with subcommands", () => {
+    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    const configPath = join(tmpdir(), `pi-auto-review-${Date.now()}.jsonc`);
+    process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
+    const commands: string[] = [];
+    piAutoReviewExtension({
+      on: () => {},
+      registerCommand: (name) => {
+        commands.push(name);
+      },
+    });
+    assert.deepEqual(commands, ["auto-review"]);
+    rmSync(configPath, { force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
+  await test("auto-review command provides argument completions", async () => {
+    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    const configPath = join(tmpdir(), `pi-auto-review-${Date.now()}.jsonc`);
+    process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
+    let getArgumentCompletions: ((argumentPrefix: string) => unknown[] | null | Promise<unknown[] | null>) | undefined;
+    let description = "";
+    piAutoReviewExtension({
+      on: () => {},
+      registerCommand: (_name, definition) => {
+        description = definition.description;
+        getArgumentCompletions = definition.getArgumentCompletions;
+      },
+    });
+    const completions = await getArgumentCompletions?.("");
+    assert.equal(description, "args: status | off | fallback | auto | model");
+    assert.deepEqual((completions ?? []).map((item) => (item as { value: string }).value), [
+      "status",
+      "off",
+      "fallback",
+      "auto",
+      "model",
+      "model current",
+    ]);
+    rmSync(configPath, { force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+    }
   });
 
   await test("projected context includes latest nested Pi user message", () => {
