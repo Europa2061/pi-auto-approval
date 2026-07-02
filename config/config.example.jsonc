@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "mode": "fallback",
+  "classifierModel": null,
+  "approvalTimeoutSeconds": 30,
+  "classifierTimeoutSeconds": 90,
+  "maxConsecutiveDenials": 3,
+  "safeCommandAllowlist": [],
+  "allow": [],
+  "deny": [],
+  "environment": "",
+  "audit": true
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pi-auto-review config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean", "default": false },
+    "mode": { "type": "string", "enum": ["fallback", "auto"], "default": "fallback" },
+    "classifierModel": { "type": ["string", "null"], "default": null },
+    "approvalTimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "default": 30 },
+    "classifierTimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "default": 90 },
+    "maxConsecutiveDenials": { "type": "number", "exclusiveMinimum": 0, "default": 3 },
+    "safeCommandAllowlist": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "allow": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "deny": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "environment": { "type": "string", "default": "" },
+    "audit": { "type": "boolean", "default": true }
+  }
+}
