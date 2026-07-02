@@ -1,24 +1,78 @@
 import { stableStringify, toRecord, truncateInline } from "./common.js";
 import type { ExtensionContextLike, ReviewSubject } from "./types.js";
 
-function entryToText(entry: unknown): string | null {
+function stringifyMessageContent(content: unknown): string | null {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    const parts = content.map((part) => {
+      const record = toRecord(part);
+      if (typeof record.text === "string") {
+        return record.text;
+      }
+      return stableStringify(part);
+    }).filter(Boolean);
+    return parts.length ? parts.join("\n") : null;
+  }
+
+  if (content !== undefined) {
+    return stableStringify(content);
+  }
+
+  return null;
+}
+
+function extractRoleAndData(entry: unknown): { role: string; data: unknown } | null {
   const record = toRecord(entry);
-  const type = String(record.type ?? record.role ?? record.customType ?? "");
-  if (type === "assistant" || type === "message:assistant") {
+  const message = toRecord(record.message);
+  const role = String(message.role ?? record.role ?? record.type ?? "");
+
+  if (!role) {
     return null;
   }
 
-  const role = String(record.role ?? record.type ?? "entry");
-  const data = record.data ?? record.message ?? record.content ?? record.text ?? record.input ?? record.output;
-  if (data === undefined) {
+  const data = message.content
+    ?? record.data
+    ?? record.content
+    ?? record.text
+    ?? record.input
+    ?? record.output;
+
+  return { role, data };
+}
+
+function entryToText(entry: unknown): string | null {
+  const extracted = extractRoleAndData(entry);
+  if (!extracted) {
     return null;
   }
 
+  const { role, data } = extracted;
+  const text = stringifyMessageContent(data);
+  if (!text) {
+    return null;
+  }
   if (role.includes("user")) {
-    return `user: ${truncateInline(typeof data === "string" ? data : stableStringify(data), 1200)}`;
+    return `user: ${truncateInline(text, 1200)}`;
   }
   if (role.includes("tool") || role.includes("function")) {
-    return `tool: ${truncateInline(typeof data === "string" ? data : stableStringify(data), 1200)}`;
+    return `tool: ${truncateInline(text, 1200)}`;
+  }
+  return null;
+}
+
+function findLatestUserText(entries: unknown[]): string | null {
+  for (const entry of entries.slice().reverse()) {
+    const extracted = extractRoleAndData(entry);
+    if (!extracted?.role.includes("user")) {
+      continue;
+    }
+    const text = stringifyMessageContent(extracted.data);
+    if (text) {
+      return truncateInline(text, 1600);
+    }
   }
   return null;
 }
@@ -29,10 +83,14 @@ export function buildProjectedContext(ctx: ExtensionContextLike, subject: Review
     .slice(-40)
     .map(entryToText)
     .filter((entry): entry is string => Boolean(entry));
+  const latestUserText = findLatestUserText(entries);
 
   return [
     "Assess whether the pending tool action is authorized and acceptable.",
     `cwd: ${subject.cwd}`,
+    "",
+    "Latest user request:",
+    latestUserText ?? "<no user request available>",
     "",
     "Retained context:",
     retained.length ? retained.join("\n") : "<no retained session context available>",

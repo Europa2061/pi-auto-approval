@@ -127,7 +127,7 @@ export async function evaluateToolCall(
   if ((toolName === "write" || toolName === "edit") && isWorkspaceInternalPath(input, cwd)) {
     await writeAudit(config, {
       event: "decision",
-      route: "readonly",
+      route: "workspace_write",
       mode: config.mode,
       toolName,
       actionSummary: subject.actionSummary,

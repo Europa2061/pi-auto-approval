@@ -58,6 +58,7 @@ export interface ReviewSubject {
 export type RouteName =
   | "disabled"
   | "readonly"
+  | "workspace_write"
   | "safe_command"
   | "session_approval"
   | "classifier_cache"

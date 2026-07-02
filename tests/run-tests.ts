@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseReviewDecision } from "../src/classifier.js";
+import { buildProjectedContext } from "../src/context-projection.js";
 import { DEFAULT_CONFIG, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
@@ -18,7 +19,7 @@ function test(name: string, fn: () => void | Promise<void>): Promise<void> {
 }
 
 function config(overrides: Partial<AutoReviewConfig> = {}): AutoReviewConfig {
-  return { ...DEFAULT_CONFIG, enabled: true, ...overrides };
+  return { ...DEFAULT_CONFIG, enabled: true, audit: false, ...overrides };
 }
 
 function ctx(overrides: Partial<ExtensionContextLike> = {}): ExtensionContextLike {
@@ -90,6 +91,61 @@ async function run(): Promise<void> {
       { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"remote execution"}' }] }) },
     );
     assert.deepEqual(deny, { block: true, reason: "AI auto-review rejected this action. Reason: remote execution Do not retry the same action unless the user explicitly approves it." });
+  });
+
+  await test("projected context includes latest nested Pi user message", () => {
+    const projected = buildProjectedContext(ctx({
+      sessionManager: {
+        getBranch: () => [
+          {
+            type: "message",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "删除文件：/tmp/pi-auto-review-test/delete-target.json" }],
+            },
+          },
+        ],
+      },
+    }), {
+      toolName: "bash",
+      input: { command: "rm /tmp/pi-auto-review-test/delete-target.json" },
+      cwd: "/workspace/project",
+      actionSummary: "bash: rm /tmp/pi-auto-review-test/delete-target.json",
+      actionHash: "test",
+    });
+    assert.match(projected, /Latest user request:\n删除文件/);
+    assert.match(projected, /Retained context:\nuser: 删除文件/);
+  });
+
+  await test("classifier receives latest user request for current approval", async () => {
+    let classifierContext = "";
+    const result = await evaluateToolCall(
+      { toolName: "bash", input: { command: "rm /tmp/pi-auto-review-test/delete-target.json" } },
+      ctx({
+        cwd: "/workspace/project",
+        sessionManager: {
+          getBranch: () => [
+            {
+              type: "message",
+              message: {
+                role: "user",
+                content: [{ type: "text", text: "删除文件：/tmp/pi-auto-review-test/delete-target.json" }],
+              },
+            },
+          ],
+        },
+      }),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      {
+        classifierClient: async (_model, context) => {
+          classifierContext = JSON.stringify(context);
+          return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+        },
+      },
+    );
+    assert.deepEqual(result, {});
+    assert.match(classifierContext, /删除文件/);
   });
 
   await test("fallback mode routes classifier deny to human approval", async () => {
