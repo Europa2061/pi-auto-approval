@@ -18,7 +18,8 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx tests/run-tests.ts",
+    "test": "node --import tsx tests/run-tests.ts",
+    "smoke:pi": "node --import tsx tests/pi-smoke.ts",
     "check": "npm run typecheck && npm run test"
   },
   "keywords": [
