@@ -176,9 +176,67 @@ async function run(): Promise<void> {
     assert.match(title, /Select approval classifier model/);
     assert.deepEqual(selectedOptions[0], [
       "current",
-      "review-provider/review-model",
       "other-provider/other-model",
+      "review-provider/review-model",
     ]);
+    assert.equal(loadConfig(process.env.PI_AUTO_REVIEW_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
+  await test("auto-review model command uses Pi-style custom selector in TUI mode", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-review-config-"));
+    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoReviewExtension({
+      on: () => {},
+      registerCommand: (name, definition) => {
+        commandHandlers.set(name, definition.handler);
+      },
+    });
+
+    let rendered: string[] = [];
+    let usedCustom = false;
+    let usedSelect = false;
+    await commandHandlers.get("auto-review")?.("model", ctx({
+      mode: "tui",
+      ui: {
+        notify: () => {},
+        select: async () => {
+          usedSelect = true;
+          return undefined;
+        },
+        custom: async (factory) => new Promise((resolve) => {
+          usedCustom = true;
+          const component = factory(
+            { requestRender: () => {} },
+            { fg: (_name: string, text: string) => text, bold: (text: string) => text },
+            {},
+            resolve,
+          ) as { render: (width: number) => string[]; handleInput: (data: string) => void };
+          rendered = component.render(80);
+          component.handleInput("review-provider/review-model");
+          component.handleInput("\n");
+        }),
+      },
+      modelRegistry: {
+        getAvailable: () => [
+          { provider: "review-provider", id: "review-model", name: "Review Model" },
+          { provider: "other-provider", id: "other-model", name: "Other Model" },
+        ],
+      },
+    }));
+
+    assert.equal(usedCustom, true);
+    assert.equal(usedSelect, false);
+    assert.equal(rendered.some((line) => line.includes("Search:")), true);
+    assert.equal(rendered.some((line) => line.includes("current [auto-review]")), true);
+    assert.equal(rendered.some((line) => line.includes("review-model [review-provider]")), true);
     assert.equal(loadConfig(process.env.PI_AUTO_REVIEW_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
     rmSync(dir, { recursive: true, force: true });
     if (previousConfigPath === undefined) {

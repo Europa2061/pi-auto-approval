@@ -2,6 +2,7 @@ import type { AutoReviewConfig, ExtensionContextLike, ToolCallEventLike } from "
 import { configPath, DEFAULT_CONFIG, loadConfig, logPath, saveConfig } from "./src/extension-config.js";
 import { evaluateToolCall } from "./src/decision.js";
 import { SessionApprovalStore } from "./src/session-approval-store.js";
+import { selectClassifierModel } from "./src/model-selector.js";
 
 type ExtensionAPI = {
   on(event: string, handler: (...args: any[]) => any): void;
@@ -51,16 +52,6 @@ function classifierModelText(config: AutoReviewConfig): string {
   return config.classifierModel ?? "current";
 }
 
-function modelLabel(model: unknown): string | null {
-  if (!model || typeof model !== "object") {
-    return null;
-  }
-  const record = model as Record<string, unknown>;
-  const provider = typeof record.provider === "string" ? record.provider : "";
-  const id = typeof record.id === "string" ? record.id : "";
-  return provider && id ? `${provider}/${id}` : id || null;
-}
-
 const COMMAND_ARGUMENTS = [
   { value: "status", label: "status", description: "Show current state and approval model" },
   { value: "off", label: "off", description: "Disable automatic approval" },
@@ -76,28 +67,6 @@ function getAutoReviewArgumentCompletions(argumentPrefix: string): Array<{ value
     item.value.startsWith(normalized) || item.label.includes(normalized)
   ));
   return filtered.length ? filtered : null;
-}
-
-async function selectClassifierModel(ctx: ExtensionContextLike, config: AutoReviewConfig): Promise<string | null | undefined> {
-  if (!ctx.ui?.select) {
-    notify(ctx, `approval classifier model: ${classifierModelText(config)}`);
-    return undefined;
-  }
-
-  const available = await Promise.resolve(ctx.modelRegistry?.getAvailable?.() ?? []);
-  const labels = available
-    .map(modelLabel)
-    .filter((label): label is string => Boolean(label));
-  const options = ["current", ...labels];
-  const selected = await ctx.ui.select(
-    [
-      "Select approval classifier model",
-      "",
-      `Current setting: ${classifierModelText(config)}`,
-    ].join("\n"),
-    options,
-  );
-  return selected === "current" ? null : selected;
 }
 
 export default function piAutoReviewExtension(pi: ExtensionAPI): void {

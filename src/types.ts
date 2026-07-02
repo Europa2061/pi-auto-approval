@@ -32,15 +32,27 @@ export interface ToolCallEventLike {
 
 export interface ExtensionContextLike {
   cwd?: string;
+  mode?: "tui" | "rpc" | "print" | string;
   hasUI?: boolean;
   ui?: {
     select?: (title: string, options: string[], optionsOverride?: unknown) => Promise<string | undefined>;
     input?: (title: string, placeholder?: string, optionsOverride?: unknown) => Promise<string | undefined>;
+    custom?: <T>(
+      factory: (
+        tui: any,
+        theme: any,
+        keybindings: any,
+        done: (result: T) => void,
+      ) => unknown | Promise<unknown>,
+      optionsOverride?: unknown,
+    ) => Promise<T>;
     notify?: (message: string, type?: "info" | "warning" | "error") => void;
     setStatus?: (key: string, value: string | undefined) => void;
   };
   model?: unknown;
   modelRegistry?: {
+    refresh?: () => void;
+    getError?: () => string | undefined;
     find?: (provider: string, id: string) => unknown;
     getAvailable?: () => unknown[] | Promise<unknown[]>;
   };
