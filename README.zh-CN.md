@@ -1,5 +1,7 @@
 # pi-auto-review
 
+[English](./README.md) | 中文
+
 pi-auto-review 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断工具调用是否可以自动放行。
 
 扩展默认关闭。推荐使用 `/auto-review fallback` 开启带人工兜底的交互模式；使用 `/auto-review auto` 开启无人值守的失败即拒绝模式；使用 `/auto-review off` 关闭自动审批。

@@ -1,5 +1,7 @@
 # pi-auto-review
 
+English | [中文](./README.zh-CN.md)
+
 Pi agent automatic approval extension powered by an AI classifier.
 
 The extension is disabled by default. Use `/auto-review fallback` for the recommended interactive mode, `/auto-review auto` for unattended fail-closed mode, or `/auto-review off` to disable automatic approval.
