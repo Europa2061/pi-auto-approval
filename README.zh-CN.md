@@ -46,6 +46,22 @@ pi install -l git:github.com:<user>/pi-auto-review
 | `/auto-review model <model-id>` | 使用当前 provider 下的指定模型作为独立审批分类器模型。 |
 | `/auto-review model <provider>/<model-id>` | 使用指定 provider 下的指定模型作为独立审批分类器模型。 |
 
+## 截图
+
+`/auto-review` 参数补全会直接在 Pi 中展示可用模式和模型选择入口。
+
+![auto-review 命令补全](docs/images/auto-review-command.png)
+
+## 架构
+
+pi-auto-review 位于 Pi 工具调用和默认审批路径之间：
+
+- 命令层注册 `/auto-review` 并持久化本地配置；
+- 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；
+- 分类器层投影最近会话上下文，并让选定模型返回结构化允许或拒绝决策；
+- 兜底层在分类器无法安全放行时请求人工审批；
+- 审计层在启用审计时写入 JSONL 记录。
+
 ## 审批流程
 
 ```mermaid

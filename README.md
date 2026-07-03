@@ -46,6 +46,22 @@ Reload Pi and enable the recommended mode:
 | `/auto-review model <model-id>` | Use a dedicated classifier model with the current provider. |
 | `/auto-review model <provider>/<model-id>` | Use a dedicated classifier model from a specific provider. |
 
+## Screenshot
+
+`/auto-review` argument completions expose the available modes and model selector directly in Pi.
+
+![auto-review command autocomplete](docs/images/auto-review-command.png)
+
+## Architecture
+
+pi-auto-review sits between Pi tool calls and the normal approval path:
+
+- command layer registers `/auto-review` and persists local config;
+- routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions;
+- classifier layer projects recent session context and asks the selected model for a structured allow or deny decision;
+- fallback layer asks the user when classifier review cannot safely approve;
+- audit layer writes JSONL records when auditing is enabled.
+
 ## Approval Flow
 
 ```mermaid
