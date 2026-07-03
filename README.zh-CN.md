@@ -11,19 +11,19 @@ pi-auto-review 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断
 从 GitHub 安装：
 
 ```bash
-pi install git:github.com:<user>/pi-auto-review
+pi install git:github.com:UnknowingSnow/pi-auto-review
 ```
 
 安装固定版本：
 
 ```bash
-pi install git:github.com:<user>/pi-auto-review@v0.1.0
+pi install git:github.com:UnknowingSnow/pi-auto-review@v0.1.0
 ```
 
 只安装到当前项目：
 
 ```bash
-pi install -l git:github.com:<user>/pi-auto-review
+pi install -l git:github.com:UnknowingSnow/pi-auto-review
 ```
 
 重新加载 Pi 并启用推荐模式：
