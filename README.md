@@ -4,6 +4,33 @@ Pi agent automatic approval extension powered by an AI classifier.
 
 The extension is disabled by default. Use `/auto-review fallback` for the recommended interactive mode, `/auto-review auto` for unattended fail-closed mode, or `/auto-review off` to disable automatic approval.
 
+## Installation
+
+Install from GitHub:
+
+```bash
+pi install git:github.com:<user>/pi-auto-review
+```
+
+Install a pinned release:
+
+```bash
+pi install git:github.com:<user>/pi-auto-review@v0.1.0
+```
+
+Install only for the current project:
+
+```bash
+pi install -l git:github.com:<user>/pi-auto-review
+```
+
+Reload Pi and enable the recommended mode:
+
+```text
+/reload
+/auto-review fallback
+```
+
 ## Commands
 
 `/auto-review` is the only slash command. Type `/auto-review ` with a trailing space to see available arguments.
@@ -84,6 +111,12 @@ sequenceDiagram
 
 `auto` means the classifier is the approval gate. A classifier allow runs the tool. A classifier deny, failure, timeout, manual-only tool, or repeated denial blocks the tool call.
 
+## Safety
+
+`fallback` is the recommended mode for normal interactive use. It lets the classifier approve low-risk work, but keeps human approval available when the classifier denies, fails, or times out.
+
+`auto` is fail-closed and should be used only in trusted unattended contexts. Classifier failures and denials block the tool call.
+
 ## Classifier Model
 
 By default, the approval classifier uses the current Pi session model. Use `/auto-review model` to choose another available model from Pi's model selector.
@@ -94,6 +127,14 @@ The selected value is stored as `classifierModel` in `config.jsonc`. `null` mean
 
 - `config.jsonc`: extension configuration.
 - `logs/pi-auto-review.jsonl`: audit decisions when auditing is enabled.
+
+## References
+
+This extension is an independent Pi package. Its approval workflow and terminal interaction design were informed by OpenAI Codex CLI and Claude Code-style coding-agent permission flows.
+
+## License
+
+Apache-2.0. The license choice is aligned with OpenAI Codex CLI.
 
 ## Pi Smoke Regression
 
