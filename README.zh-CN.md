@@ -131,7 +131,3 @@ sequenceDiagram
 ## 参考来源
 
 本扩展是独立的 Pi package。审批工作流和终端交互设计参考了 OpenAI Codex CLI 以及 Claude Code 风格的 coding-agent 权限流程。
-
-## 开源协议
-
-Apache-2.0。协议选择与 OpenAI Codex CLI 对齐。

@@ -132,10 +132,6 @@ The selected value is stored as `classifierModel` in `config.jsonc`. `null` mean
 
 This extension is an independent Pi package. Its approval workflow and terminal interaction design were informed by OpenAI Codex CLI and Claude Code-style coding-agent permission flows.
 
-## License
-
-Apache-2.0. The license choice is aligned with OpenAI Codex CLI.
-
 ## Pi Smoke Regression
 
 Run the local Pi-side smoke regression with:
