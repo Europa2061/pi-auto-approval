@@ -17,6 +17,7 @@ logs/
 
 # --- External references (symlinks & submodules) ---
 references/
+pi/
 
 # --- OS files ---
 .DS_Store

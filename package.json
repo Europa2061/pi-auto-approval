@@ -13,8 +13,7 @@
     "tests",
     "config",
     "schemas",
-    "README.md",
-    "plan-20260701.md"
+    "README.md"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
