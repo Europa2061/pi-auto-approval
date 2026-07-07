@@ -12,7 +12,7 @@ export async function writeAudit(config: AutoReviewConfig, entry: AuditEntry): P
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, `${JSON.stringify({
       timestamp: new Date().toISOString(),
-      extension: "pi-auto-review",
+      extension: "pi-auto-approval",
       ...entry,
     })}\n`, "utf-8");
   } catch {

@@ -1,5 +1,5 @@
 {
-  "name": "pi-auto-review",
+  "name": "pi-auto-approval",
   "version": "0.1.0",
   "description": "AI classifier based automatic approval extension for Pi coding agent.",
   "type": "module",

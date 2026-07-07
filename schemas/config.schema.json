@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pi-auto-review config",
+  "title": "pi-auto-approval config",
   "type": "object",
   "additionalProperties": false,
   "properties": {

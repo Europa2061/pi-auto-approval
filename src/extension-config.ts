@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AutoReviewConfig, AutoReviewMode } from "./types.js";
 import { toRecord } from "./common.js";
 
-export const EXTENSION_ID = "pi-auto-review";
+export const EXTENSION_ID = "pi-auto-approval";
 
 export const DEFAULT_CONFIG: AutoReviewConfig = {
   enabled: false,
@@ -89,7 +89,7 @@ export function loadConfig(path = configPath()): { config: AutoReviewConfig; war
     return {
       config: { ...DEFAULT_CONFIG },
       created,
-      warning: `Failed to read pi-auto-review config at '${path}': ${message}; using defaults.`,
+      warning: `Failed to read pi-auto-approval config at '${path}': ${message}; using defaults.`,
     };
   }
 }

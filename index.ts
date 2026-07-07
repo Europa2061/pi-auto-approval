@@ -17,7 +17,7 @@ type ExtensionAPI = {
   ) => void;
 };
 
-const STATUS_KEY = "pi-auto-review";
+const STATUS_KEY = "pi-auto-approval";
 
 function statusText(config: AutoReviewConfig): string | undefined {
   if (!config.enabled) {
@@ -92,7 +92,7 @@ export default function piAutoReviewExtension(pi: ExtensionAPI): void {
   function persist(next: AutoReviewConfig, ctx: ExtensionContextLike): void {
     const saved = saveConfig(next);
     if (!saved.success) {
-      notify(ctx, `Failed to save pi-auto-review config: ${saved.error ?? "unknown error"}`, "error");
+      notify(ctx, `Failed to save pi-auto-approval config: ${saved.error ?? "unknown error"}`, "error");
       return;
     }
     config = next;
@@ -106,15 +106,15 @@ export default function piAutoReviewExtension(pi: ExtensionAPI): void {
       case "off":
         persist({ ...config, enabled: false }, ctx);
         approvals.clear();
-        notify(ctx, "pi-auto-review state: off.");
+        notify(ctx, "pi-auto-approval state: off.");
         break;
       case "fallback":
         persist({ ...config, enabled: true, mode: "fallback" }, ctx);
-        notify(ctx, "pi-auto-review state: fallback.");
+        notify(ctx, "pi-auto-approval state: fallback.");
         break;
       case "auto":
         persist({ ...config, enabled: true, mode: "auto" }, ctx);
-        notify(ctx, "pi-auto-review state: auto.");
+        notify(ctx, "pi-auto-approval state: auto.");
         break;
       case "model": {
         if (!rest) {

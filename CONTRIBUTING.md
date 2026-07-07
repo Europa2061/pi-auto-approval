@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for improving `pi-auto-review`.
+Thanks for improving `pi-auto-approval`.
 
 ## Development
 

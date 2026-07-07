@@ -1,4 +1,4 @@
-# pi-auto-review
+# pi-auto-approval
 
 English | [中文](./README.zh-CN.md)
 
@@ -11,19 +11,19 @@ The extension is disabled by default. Use `/auto-review fallback` for the recomm
 Install from GitHub:
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-review
+pi install https://github.com/Europa2061/pi-auto-approval
 ```
 
 Install a pinned release:
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-review@v0.1.0
+pi install https://github.com/Europa2061/pi-auto-approval@v0.1.0
 ```
 
 Install only for the current project:
 
 ```bash
-pi install -l https://github.com/Europa2061/pi-auto-review
+pi install -l https://github.com/Europa2061/pi-auto-approval
 ```
 
 Reload Pi and enable the recommended mode:
@@ -56,7 +56,7 @@ Reload Pi and enable the recommended mode:
 
 ## Architecture
 
-pi-auto-review sits between Pi tool calls and the normal approval path:
+pi-auto-approval sits between Pi tool calls and the normal approval path:
 
 - command layer registers `/auto-review` and persists local config;
 - routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions;
@@ -70,7 +70,7 @@ pi-auto-review sits between Pi tool calls and the normal approval path:
 sequenceDiagram
     participant User
     participant Pi as Pi Agent
-    participant Ext as pi-auto-review
+    participant Ext as pi-auto-approval
     participant Store as Session Cache
     participant Classifier as Approval Classifier Model
     participant Human as Human Approval UI
@@ -144,7 +144,7 @@ The selected value is stored as `classifierModel` in `config.jsonc`. `null` mean
 ## Files
 
 - `config.jsonc`: extension configuration.
-- `logs/pi-auto-review.jsonl`: audit decisions when auditing is enabled.
+- `logs/pi-auto-approval.jsonl`: audit decisions when auditing is enabled.
 
 ## References
 

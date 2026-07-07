@@ -143,7 +143,7 @@ async function run(): Promise<void> {
   });
 
   await test("auto-review model command opens model selector and persists selection", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-auto-review-config-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
     const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
     process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
     const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
@@ -189,7 +189,7 @@ async function run(): Promise<void> {
   });
 
   await test("auto-review model command uses Pi-style custom selector in TUI mode", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-auto-review-config-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
     const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
     process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
     const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
@@ -248,7 +248,7 @@ async function run(): Promise<void> {
 
   await test("extension registers one slash command with subcommands", () => {
     const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
-    const configPath = join(tmpdir(), `pi-auto-review-${Date.now()}.jsonc`);
+    const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);
     process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
     const commands: string[] = [];
     piAutoReviewExtension({
@@ -268,7 +268,7 @@ async function run(): Promise<void> {
 
   await test("auto-review command provides argument completions", async () => {
     const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
-    const configPath = join(tmpdir(), `pi-auto-review-${Date.now()}.jsonc`);
+    const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);
     process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
     let getArgumentCompletions: ((argumentPrefix: string) => unknown[] | null | Promise<unknown[] | null>) | undefined;
     let description = "";
@@ -305,16 +305,16 @@ async function run(): Promise<void> {
             type: "message",
             message: {
               role: "user",
-              content: [{ type: "text", text: "删除文件：/tmp/pi-auto-review-test/delete-target.json" }],
+              content: [{ type: "text", text: "删除文件：/tmp/pi-auto-approval-test/delete-target.json" }],
             },
           },
         ],
       },
     }), {
       toolName: "bash",
-      input: { command: "rm /tmp/pi-auto-review-test/delete-target.json" },
+      input: { command: "rm /tmp/pi-auto-approval-test/delete-target.json" },
       cwd: "/workspace/project",
-      actionSummary: "bash: rm /tmp/pi-auto-review-test/delete-target.json",
+      actionSummary: "bash: rm /tmp/pi-auto-approval-test/delete-target.json",
       actionHash: "test",
     });
     assert.match(projected, /Latest user request:\n删除文件/);
@@ -324,7 +324,7 @@ async function run(): Promise<void> {
   await test("classifier receives latest user request for current approval", async () => {
     let classifierContext = "";
     const result = await evaluateToolCall(
-      { toolName: "bash", input: { command: "rm /tmp/pi-auto-review-test/delete-target.json" } },
+      { toolName: "bash", input: { command: "rm /tmp/pi-auto-approval-test/delete-target.json" } },
       ctx({
         cwd: "/workspace/project",
         sessionManager: {
@@ -333,7 +333,7 @@ async function run(): Promise<void> {
               type: "message",
               message: {
                 role: "user",
-                content: [{ type: "text", text: "删除文件：/tmp/pi-auto-review-test/delete-target.json" }],
+                content: [{ type: "text", text: "删除文件：/tmp/pi-auto-approval-test/delete-target.json" }],
               },
             },
           ],
@@ -390,7 +390,7 @@ async function run(): Promise<void> {
   });
 
   await test("audit logging does not throw", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-auto-review-test-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-test-"));
     process.env.PI_AUTO_REVIEW_LOGS_DIR = dir;
     await evaluateToolCall(
       { toolName: "bash", input: { command: "git status" } },

@@ -1,8 +1,8 @@
-# pi-auto-review
+# pi-auto-approval
 
 [English](./README.md) | 中文
 
-pi-auto-review 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断工具调用是否可以自动放行。
+pi-auto-approval 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断工具调用是否可以自动放行。
 
 扩展默认关闭。推荐使用 `/auto-review fallback` 开启带人工兜底的交互模式；使用 `/auto-review auto` 开启无人值守的失败即拒绝模式；使用 `/auto-review off` 关闭自动审批。
 
@@ -11,19 +11,19 @@ pi-auto-review 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断
 从 GitHub 安装：
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-review
+pi install https://github.com/Europa2061/pi-auto-approval
 ```
 
 安装固定版本：
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-review@v0.1.0
+pi install https://github.com/Europa2061/pi-auto-approval@v0.1.0
 ```
 
 只安装到当前项目：
 
 ```bash
-pi install -l https://github.com/Europa2061/pi-auto-review
+pi install -l https://github.com/Europa2061/pi-auto-approval
 ```
 
 重新加载 Pi 并启用推荐模式：
@@ -56,7 +56,7 @@ pi install -l https://github.com/Europa2061/pi-auto-review
 
 ## 架构
 
-pi-auto-review 位于 Pi 工具调用和默认审批路径之间：
+pi-auto-approval 位于 Pi 工具调用和默认审批路径之间：
 
 - 命令层注册 `/auto-review` 并持久化本地配置；
 - 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；
@@ -70,7 +70,7 @@ pi-auto-review 位于 Pi 工具调用和默认审批路径之间：
 sequenceDiagram
     participant User as 用户
     participant Pi as Pi Agent
-    participant Ext as pi-auto-review
+    participant Ext as pi-auto-approval
     participant Store as 会话缓存
     participant Classifier as 审批分类器模型
     participant Human as 人工审批 UI
@@ -144,7 +144,7 @@ sequenceDiagram
 ## 文件
 
 - `config.jsonc`: 扩展配置。
-- `logs/pi-auto-review.jsonl`: 审计开启时记录的审批决策。
+- `logs/pi-auto-approval.jsonl`: 审计开启时记录的审批决策。
 
 ## 参考来源
 
