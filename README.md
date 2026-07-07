@@ -11,19 +11,19 @@ The extension is disabled by default. Use `/auto-review fallback` for the recomm
 Install from GitHub:
 
 ```bash
-pi install git:github.com:UnknowingSnow/pi-auto-review
+pi install git:github.com:Europa2061/pi-auto-review
 ```
 
 Install a pinned release:
 
 ```bash
-pi install git:github.com:UnknowingSnow/pi-auto-review@v0.1.0
+pi install git:github.com:Europa2061/pi-auto-review@v0.1.0
 ```
 
 Install only for the current project:
 
 ```bash
-pi install -l git:github.com:UnknowingSnow/pi-auto-review
+pi install -l git:github.com:Europa2061/pi-auto-review
 ```
 
 Reload Pi and enable the recommended mode:
