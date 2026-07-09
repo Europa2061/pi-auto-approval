@@ -2,7 +2,11 @@
 
 [English](./README.md) | 中文
 
-pi-auto-approval 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断工具调用是否可以自动放行。
+pi-auto-approval 是一个为 Pi 开发的自动审批扩展，目标是把 Claude Code auto mode 和 Codex Auto-review 风格的 approval workflow 带到 Pi。
+
+当 Pi agent 请求执行工具调用时，扩展会先使用 AI 分类器判断该动作是否可以安全放行。低风险动作可以自动批准；高风险、拒绝、失败或不确定的动作会根据当前模式回退到人工审批，或直接阻止执行。
+
+如果你喜欢 Claude Code auto mode 减少重复确认的体验，或者想在 Pi 中获得类似 Codex Auto-review 的审批边界和人工兜底机制，这个扩展就是为这个场景准备的。
 
 扩展默认关闭。推荐使用 `/auto-approval fallback` 开启带人工兜底的交互模式；使用 `/auto-approval auto` 开启无人值守的失败即拒绝模式；使用 `/auto-approval off` 关闭自动审批。
 

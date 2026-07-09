@@ -2,7 +2,11 @@
 
 English | [中文](./README.zh-CN.md)
 
-Pi agent automatic approval extension powered by an AI classifier.
+pi-auto-approval is an automatic approval extension built for Pi. It brings a Claude Code auto mode and Codex Auto-review inspired approval workflow to Pi.
+
+When a Pi agent requests a tool call, the extension asks an AI classifier whether the action can be safely approved. Low-risk actions can be approved automatically; risky, denied, failed, or uncertain actions fall back to human approval or are blocked, depending on the selected mode.
+
+If you like Claude Code auto mode for reducing repetitive permission prompts, or want a Codex Auto-review style approval boundary with human fallback inside Pi, this extension is built for that workflow.
 
 The extension is disabled by default. Use `/auto-approval fallback` for the recommended interactive mode, `/auto-approval auto` for unattended fail-closed mode, or `/auto-approval off` to disable automatic approval.
 
