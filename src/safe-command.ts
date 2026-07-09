@@ -1,22 +1,7 @@
 import type { AutoReviewConfig } from "./types.js";
 
-const BUILTIN_SAFE_PATTERNS: RegExp[] = [
-  /^pwd$/,
-  /^ls(?:\s|$)/,
-  /^cat\s+/,
-  /^head(?:\s|$)/,
-  /^tail(?:\s|$)/,
-  /^grep(?:\s|$)/,
-  /^rg(?:\s|$)/,
-  /^find(?:\s|$)/,
-  /^sed\s+-n(?:\s|$)/,
-  /^git\s+status(?:\s|$)/,
-  /^git\s+log(?:\s|$)/,
-  /^git\s+diff(?:\s|$)/,
-  /^git\s+show(?:\s|$)/,
-  /^git\s+branch(?:\s|$)/,
-  /^git\s+rev-parse(?:\s|$)/,
-];
+const SAFE_GIT_SUBCOMMANDS = new Set(["status", "log", "diff", "show", "rev-parse"]);
+const SAFE_GIT_BRANCH_FLAGS = new Set(["--show-current", "--list", "--all", "--merged", "--no-merged", "-a", "-r", "-v", "-vv"]);
 
 const UNSAFE_SHELL_TOKENS = [
   "|",
@@ -46,6 +31,75 @@ function splitSimpleCommands(command: string): string[] | null {
   return [normalizeCommand(command)].filter(Boolean);
 }
 
+function tokenizeSimpleCommand(command: string): string[] | null {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaped || quote) {
+    return null;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+function isBuiltinSafeCommand(command: string): boolean {
+  const tokens = tokenizeSimpleCommand(command);
+  if (!tokens?.length) {
+    return false;
+  }
+
+  const [program, subcommand, ...rest] = tokens;
+  if (program === "pwd" && tokens.length === 1) {
+    return true;
+  }
+  if (program !== "git" || !subcommand) {
+    return false;
+  }
+  if (SAFE_GIT_SUBCOMMANDS.has(subcommand)) {
+    return true;
+  }
+  if (subcommand !== "branch") {
+    return false;
+  }
+  return rest.every((arg) => SAFE_GIT_BRANCH_FLAGS.has(arg) || !arg.startsWith("-"));
+}
+
 function isUserAllowlisted(command: string, config: AutoReviewConfig): boolean {
   return config.safeCommandAllowlist.some((pattern) => {
     const trimmed = pattern.trim();
@@ -66,6 +120,6 @@ export function isSafeReadOnlyCommand(command: string, config: AutoReviewConfig)
     return false;
   }
   return parts.every((part) => (
-    BUILTIN_SAFE_PATTERNS.some((pattern) => pattern.test(part)) || isUserAllowlisted(part, config)
+    isBuiltinSafeCommand(part) || isUserAllowlisted(part, config)
   ));
 }

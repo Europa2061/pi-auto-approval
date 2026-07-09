@@ -109,8 +109,9 @@ export async function evaluateToolCall(
   const cwd = ctx.cwd || process.cwd();
   const input = getToolInput(event);
   const subject = createReviewSubject(toolName, input, cwd);
+  const toolDefinition = findToolDefinition(toolName, options.tools ?? []);
 
-  if (isReadOnlyTool(toolName)) {
+  if (isReadOnlyTool(toolName, toolDefinition)) {
     await writeAudit(config, {
       event: "decision",
       route: "readonly",
@@ -138,7 +139,6 @@ export async function evaluateToolCall(
     return {};
   }
 
-  const toolDefinition = findToolDefinition(toolName, options.tools ?? []);
   if (isManualOnlyTool(toolName, toolDefinition)) {
     if (config.mode === "fallback" && ctx.hasUI) {
       return handleHumanFallback(ctx, config, store, subject, {

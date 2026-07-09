@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, normalize, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, normalize, resolve, sep } from "node:path";
 
 export function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -34,7 +35,28 @@ export function resolvePathForCwd(pathValue: string, cwd: string): string {
 }
 
 export function isPathWithin(pathValue: string, root: string): boolean {
-  const resolvedPath = resolvePathForCwd(pathValue, root);
-  const resolvedRoot = normalize(resolve(root));
-  return resolvedPath === resolvedRoot || resolvedPath.startsWith(`${resolvedRoot}/`);
+  const resolvedPath = resolveExistingPathForBoundary(pathValue, root);
+  const resolvedRoot = resolveExistingPathForBoundary(root, root);
+  return resolvedPath === resolvedRoot || resolvedPath.startsWith(`${resolvedRoot}${sep}`);
+}
+
+function resolveExistingPathForBoundary(pathValue: string, cwd: string): string {
+  const resolvedPath = resolvePathForCwd(pathValue, cwd);
+  if (existsSync(resolvedPath)) {
+    return normalize(realpathSync(resolvedPath));
+  }
+
+  let current = resolvedPath;
+  const tail: string[] = [];
+  while (true) {
+    if (existsSync(current)) {
+      return normalize(resolve(realpathSync(current), ...tail.reverse()));
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return resolvedPath;
+    }
+    tail.push(current.slice(parent.length).replace(/^[/\\]/, ""));
+    current = parent;
+  }
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import piAutoApprovalExtension from "../index.js";
@@ -96,6 +96,10 @@ async function run(): Promise<void> {
     assert.equal(isSafeReadOnlyCommand('bash -lc "git diff"', cfg), true);
     assert.equal(isSafeReadOnlyCommand("git status && rm -rf tmp", cfg), false);
     assert.equal(isSafeReadOnlyCommand("npm install", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("find . -delete", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("find . -exec rm -rf {} +", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("sed -n -i s/a/b/ file", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("cat /etc/passwd", cfg), false);
   });
 
   await test("disabled extension transparently allows", async () => {
@@ -112,6 +116,52 @@ async function run(): Promise<void> {
     const store = new SessionApprovalStore();
     assert.deepEqual(await evaluateToolCall({ toolName: "read", input: { path: "a.ts" } }, ctx(), config(), store), {});
     assert.deepEqual(await evaluateToolCall({ toolName: "edit", input: { path: "/tmp/workspace/a.ts" } }, ctx(), config(), store), {});
+  });
+
+  await test("read-only routing does not infer from action-like tool names", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "search_and_replace", input: { path: "/tmp/workspace/a.ts", oldText: "a", newText: "b" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"not readonly"}' }] }) },
+    );
+    assert.deepEqual(result, { block: true, reason: "AI auto-approval rejected this action. Reason: not readonly Do not retry the same action unless the user explicitly approves it." });
+  });
+
+  await test("read-only routing accepts trusted tool metadata", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "custom_report", input: { path: "/tmp/workspace/a.ts" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      {
+        tools: [{ name: "custom_report", annotations: { readOnlyHint: true } }],
+        classifierClient: async () => { throw new Error("readonly metadata should not call classifier"); },
+      },
+    );
+    assert.deepEqual(result, {});
+  });
+
+  await test("workspace write fast path rejects symlink escape", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-auto-approval-symlink-"));
+    const workspace = join(root, "workspace");
+    const outside = join(root, "outside");
+    mkdirSync(workspace);
+    mkdirSync(outside);
+    symlinkSync(outside, join(workspace, "linked-outside"));
+    try {
+      const result = await evaluateToolCall(
+        { toolName: "edit", input: { path: join(workspace, "linked-outside", "a.ts") } },
+        ctx({ cwd: workspace }),
+        config({ mode: "auto" }),
+        new SessionApprovalStore(),
+        { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"outside workspace"}' }] }) },
+      );
+      assert.deepEqual(result, { block: true, reason: "AI auto-approval rejected this action. Reason: outside workspace Do not retry the same action unless the user explicitly approves it." });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   await test("auto mode allows classifier allow and denies classifier deny", async () => {

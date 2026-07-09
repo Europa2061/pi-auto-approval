@@ -31,13 +31,26 @@ export function getToolInput(event: ToolCallEventLike): unknown {
   return event.input !== undefined ? event.input : event.arguments ?? {};
 }
 
-export function isReadOnlyTool(toolName: string): boolean {
-  const normalized = toolName.trim().toLowerCase();
-  if (READ_ONLY_TOOLS.has(normalized)) {
+export function isReadOnlyTool(toolName: string, toolDefinition?: unknown): boolean {
+  const definition = toRecord(toolDefinition);
+  if (typeof definition.isReadOnly === "function") {
+    try {
+      if (definition.isReadOnly({})) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+  if (definition.isReadOnly === true || definition.readOnlyHint === true) {
     return true;
   }
-  const parts = normalized.split(/[^a-z0-9]+/).filter(Boolean);
-  return parts.some((part) => READ_ONLY_TOOLS.has(part));
+  if (toRecord(definition.annotations).readOnlyHint === true) {
+    return true;
+  }
+
+  const normalized = toolName.trim().toLowerCase();
+  return READ_ONLY_TOOLS.has(normalized);
 }
 
 export function getPathFromInput(input: unknown): string | null {
