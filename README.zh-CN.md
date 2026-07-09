@@ -4,7 +4,7 @@
 
 pi-auto-approval 是一个 Pi agent 自动审批扩展，使用 AI 分类器判断工具调用是否可以自动放行。
 
-扩展默认关闭。推荐使用 `/auto-review fallback` 开启带人工兜底的交互模式；使用 `/auto-review auto` 开启无人值守的失败即拒绝模式；使用 `/auto-review off` 关闭自动审批。
+扩展默认关闭。推荐使用 `/auto-approval fallback` 开启带人工兜底的交互模式；使用 `/auto-approval auto` 开启无人值守的失败即拒绝模式；使用 `/auto-approval off` 关闭自动审批。
 
 ## 安装
 
@@ -30,35 +30,35 @@ pi install -l https://github.com/Europa2061/pi-auto-approval
 
 ```text
 /reload
-/auto-review fallback
+/auto-approval fallback
 ```
 
 ## 命令
 
-`/auto-review` 是唯一的斜杠命令。输入带尾随空格的 `/auto-review ` 可以查看可用参数。
+`/auto-approval` 是唯一的斜杠命令。输入带尾随空格的 `/auto-approval ` 可以查看可用参数。
 
 | 命令 | 效果 |
 | --- | --- |
-| `/auto-review status` | 显示当前状态、审批分类器模型、配置文件路径和审计日志路径。 |
-| `/auto-review off` | 关闭自动审批。工具审批回到 Pi 的默认行为。 |
-| `/auto-review fallback` | 开启 AI 审批；当分类器拒绝或失败时，回退到人工审批。 |
-| `/auto-review auto` | 只使用 AI 审批。分类器拒绝或失败时直接阻止工具调用。 |
-| `/auto-review model` | 打开审批分类器模型选择器。 |
-| `/auto-review model current` | 使用当前 Pi 会话模型作为审批分类器模型。 |
-| `/auto-review model <model-id>` | 使用当前 provider 下的指定模型作为独立审批分类器模型。 |
-| `/auto-review model <provider>/<model-id>` | 使用指定 provider 下的指定模型作为独立审批分类器模型。 |
+| `/auto-approval status` | 显示当前状态、审批分类器模型、配置文件路径和审计日志路径。 |
+| `/auto-approval off` | 关闭自动审批。工具审批回到 Pi 的默认行为。 |
+| `/auto-approval fallback` | 开启 AI 审批；当分类器拒绝或失败时，回退到人工审批。 |
+| `/auto-approval auto` | 只使用 AI 审批。分类器拒绝或失败时直接阻止工具调用。 |
+| `/auto-approval model` | 打开审批分类器模型选择器。 |
+| `/auto-approval model current` | 使用当前 Pi 会话模型作为审批分类器模型。 |
+| `/auto-approval model <model-id>` | 使用当前 provider 下的指定模型作为独立审批分类器模型。 |
+| `/auto-approval model <provider>/<model-id>` | 使用指定 provider 下的指定模型作为独立审批分类器模型。 |
 
 ## 截图
 
-`/auto-review` 参数补全会直接在 Pi 中展示可用模式和模型选择入口。
+`/auto-approval` 参数补全会直接在 Pi 中展示可用模式和模型选择入口。
 
-![auto-review 命令补全](docs/images/auto-review-command.png)
+![auto-approval 命令补全](docs/images/auto-approval-command.png)
 
 ## 架构
 
 pi-auto-approval 位于 Pi 工具调用和默认审批路径之间：
 
-- 命令层注册 `/auto-review` 并持久化本地配置；
+- 命令层注册 `/auto-approval` 并持久化本地配置；
 - 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；
 - 分类器层投影最近会话上下文，并让选定模型返回结构化允许或拒绝决策；
 - 兜底层在分类器无法安全放行时请求人工审批；
@@ -137,7 +137,7 @@ sequenceDiagram
 
 ## 分类器模型
 
-默认情况下，审批分类器使用当前 Pi 会话模型。使用 `/auto-review model` 可以从 Pi 的模型选择器中选择另一个可用模型。
+默认情况下，审批分类器使用当前 Pi 会话模型。使用 `/auto-approval model` 可以从 Pi 的模型选择器中选择另一个可用模型。
 
 选中的值会保存为 `config.jsonc` 中的 `classifierModel`。`null` 表示“使用当前会话模型”。
 

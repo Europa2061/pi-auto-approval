@@ -23,14 +23,14 @@ function deny(reason: string): ToolCallDecision {
 
 function classifierDenyReason(decision: ReviewDecision): string {
   return [
-    "AI auto-review rejected this action.",
+    "AI auto-approval rejected this action.",
     decision.rationale ? `Reason: ${decision.rationale}` : null,
     "Do not retry the same action unless the user explicitly approves it.",
   ].filter(Boolean).join(" ");
 }
 
 function failureDenyReason(reason: string): string {
-  return `AI auto-review could not approve this action: ${reason}`;
+  return `AI auto-approval could not approve this action: ${reason}`;
 }
 
 async function handleHumanFallback(
@@ -288,7 +288,7 @@ export async function evaluateToolCall(
   });
 
   if (denials >= config.maxConsecutiveDenials) {
-    return deny(`${classifierDenyReason(classifierDecision)} Auto-review rejected ${denials} consecutive requests; stop and ask the user for guidance.`);
+    return deny(`${classifierDenyReason(classifierDecision)} Auto-approval rejected ${denials} consecutive requests; stop and ask the user for guidance.`);
   }
   return deny(classifierDenyReason(classifierDecision));
 }

@@ -25,7 +25,7 @@
     "pi-package",
     "pi-extension",
     "pi-coding-agent",
-    "auto-review",
+    "auto-approval",
     "permissions"
   ],
   "license": "Apache-2.0",

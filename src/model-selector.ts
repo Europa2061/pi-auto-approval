@@ -120,7 +120,7 @@ function createSelectorComponent(
 ) {
   const currentRef = selectedModelRef(config, ctx.model);
   const allItems: ModelItem[] = [
-    { value: null, provider: "auto-review", id: "current", name: "Use active Pi session model" },
+    { value: null, provider: "auto-approval", id: "current", name: "Use active Pi session model" },
     ...items,
   ];
   let query = "";

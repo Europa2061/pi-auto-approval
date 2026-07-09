@@ -49,7 +49,7 @@ export async function requestHumanApproval(
   ].filter((line) => line !== null).join("\n");
 
   const selected = await ctx.ui.select(
-    `${options.title ?? "Auto Review"}\n${details}`,
+    `${options.title ?? "Auto Approval"}\n${details}`,
     [ALLOW_ONCE, ALLOW_EXACT, REJECT, REJECT_WITH_REASON],
     { timeout: options.timeoutSeconds * 1000 },
   );

@@ -23,7 +23,7 @@ function statusText(config: AutoReviewConfig): string | undefined {
   if (!config.enabled) {
     return undefined;
   }
-  return `auto-review:${config.mode}`;
+  return `auto-approval:${config.mode}`;
 }
 
 function stateText(config: AutoReviewConfig): "off" | "fallback" | "auto" {
@@ -69,7 +69,7 @@ function getAutoReviewArgumentCompletions(argumentPrefix: string): Array<{ value
   return filtered.length ? filtered : null;
 }
 
-export default function piAutoReviewExtension(pi: ExtensionAPI): void {
+export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
   let loadResult = loadConfig();
   let config = loadResult.config;
   const approvals = new SessionApprovalStore();
@@ -150,7 +150,7 @@ export default function piAutoReviewExtension(pi: ExtensionAPI): void {
     }
   }
 
-  pi.registerCommand?.("auto-review", {
+  pi.registerCommand?.("auto-approval", {
     description: "args: status | off | fallback | auto | model",
     getArgumentCompletions: getAutoReviewArgumentCompletions,
     handler: async (args, ctx) => {

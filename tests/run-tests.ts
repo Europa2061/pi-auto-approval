@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import piAutoReviewExtension from "../index.js";
+import piAutoApprovalExtension from "../index.js";
 import { classifyAction, parseReviewDecision } from "../src/classifier.js";
 import { buildProjectedContext } from "../src/context-projection.js";
-import { DEFAULT_CONFIG, loadConfig, normalizeConfig } from "../src/extension-config.js";
+import { configPath, DEFAULT_CONFIG, loadConfig, logsDir, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
@@ -38,6 +38,47 @@ async function run(): Promise<void> {
     assert.deepEqual(normalizeConfig({}), DEFAULT_CONFIG);
     assert.equal(normalizeConfig({ enabled: true, mode: "auto" }).mode, "auto");
     assert.equal(normalizeConfig({ enabled: true, mode: "bad" }).mode, "fallback");
+  });
+
+  await test("config paths prefer PI_AUTO_APPROVAL env vars and support legacy PI_AUTO_REVIEW env vars", () => {
+    const previousApprovalConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    const previousApprovalLogsDir = process.env.PI_AUTO_APPROVAL_LOGS_DIR;
+    const previousReviewConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    const previousReviewLogsDir = process.env.PI_AUTO_REVIEW_LOGS_DIR;
+    try {
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+      delete process.env.PI_AUTO_APPROVAL_LOGS_DIR;
+      process.env.PI_AUTO_REVIEW_CONFIG_PATH = "/tmp/legacy-review-config.jsonc";
+      process.env.PI_AUTO_REVIEW_LOGS_DIR = "/tmp/legacy-review-logs";
+      assert.equal(configPath(), "/tmp/legacy-review-config.jsonc");
+      assert.equal(logsDir(), "/tmp/legacy-review-logs");
+
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = "/tmp/approval-config.jsonc";
+      process.env.PI_AUTO_APPROVAL_LOGS_DIR = "/tmp/approval-logs";
+      assert.equal(configPath(), "/tmp/approval-config.jsonc");
+      assert.equal(logsDir(), "/tmp/approval-logs");
+    } finally {
+      if (previousApprovalConfigPath === undefined) {
+        delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+      } else {
+        process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousApprovalConfigPath;
+      }
+      if (previousApprovalLogsDir === undefined) {
+        delete process.env.PI_AUTO_APPROVAL_LOGS_DIR;
+      } else {
+        process.env.PI_AUTO_APPROVAL_LOGS_DIR = previousApprovalLogsDir;
+      }
+      if (previousReviewConfigPath === undefined) {
+        delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+      } else {
+        process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousReviewConfigPath;
+      }
+      if (previousReviewLogsDir === undefined) {
+        delete process.env.PI_AUTO_REVIEW_LOGS_DIR;
+      } else {
+        process.env.PI_AUTO_REVIEW_LOGS_DIR = previousReviewLogsDir;
+      }
+    }
   });
 
   await test("parseReviewDecision supports strict and wrapped JSON", () => {
@@ -91,7 +132,7 @@ async function run(): Promise<void> {
       new SessionApprovalStore(),
       { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"remote execution"}' }] }) },
     );
-    assert.deepEqual(deny, { block: true, reason: "AI auto-review rejected this action. Reason: remote execution Do not retry the same action unless the user explicitly approves it." });
+    assert.deepEqual(deny, { block: true, reason: "AI auto-approval rejected this action. Reason: remote execution Do not retry the same action unless the user explicitly approves it." });
   });
 
   await test("classifier uses current model by default", async () => {
@@ -142,12 +183,12 @@ async function run(): Promise<void> {
     assert.equal(usedModel, reviewModel);
   });
 
-  await test("auto-review model command opens model selector and persists selection", async () => {
+  await test("auto-approval model command opens model selector and persists selection", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
-    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
-    process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
     const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
-    piAutoReviewExtension({
+    piAutoApprovalExtension({
       on: () => {},
       registerCommand: (name, definition) => {
         commandHandlers.set(name, definition.handler);
@@ -156,7 +197,7 @@ async function run(): Promise<void> {
 
     let title = "";
     const selectedOptions: string[][] = [];
-    await commandHandlers.get("auto-review")?.("model", ctx({
+    await commandHandlers.get("auto-approval")?.("model", ctx({
       ui: {
         notify: () => {},
         select: async (nextTitle, options) => {
@@ -179,21 +220,21 @@ async function run(): Promise<void> {
       "other-provider/other-model",
       "review-provider/review-model",
     ]);
-    assert.equal(loadConfig(process.env.PI_AUTO_REVIEW_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
+    assert.equal(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
     rmSync(dir, { recursive: true, force: true });
     if (previousConfigPath === undefined) {
-      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     } else {
-      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
     }
   });
 
-  await test("auto-review model command uses Pi-style custom selector in TUI mode", async () => {
+  await test("auto-approval model command uses Pi-style custom selector in TUI mode", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
-    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
-    process.env.PI_AUTO_REVIEW_CONFIG_PATH = join(dir, "config.jsonc");
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
     const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
-    piAutoReviewExtension({
+    piAutoApprovalExtension({
       on: () => {},
       registerCommand: (name, definition) => {
         commandHandlers.set(name, definition.handler);
@@ -203,7 +244,7 @@ async function run(): Promise<void> {
     let rendered: string[] = [];
     let usedCustom = false;
     let usedSelect = false;
-    await commandHandlers.get("auto-review")?.("model", ctx({
+    await commandHandlers.get("auto-approval")?.("model", ctx({
       mode: "tui",
       ui: {
         notify: () => {},
@@ -235,44 +276,44 @@ async function run(): Promise<void> {
     assert.equal(usedCustom, true);
     assert.equal(usedSelect, false);
     assert.equal(rendered.some((line) => line.includes("Search:")), true);
-    assert.equal(rendered.some((line) => line.includes("current [auto-review]")), true);
+    assert.equal(rendered.some((line) => line.includes("current [auto-approval]")), true);
     assert.equal(rendered.some((line) => line.includes("review-model [review-provider]")), true);
-    assert.equal(loadConfig(process.env.PI_AUTO_REVIEW_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
+    assert.equal(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
     rmSync(dir, { recursive: true, force: true });
     if (previousConfigPath === undefined) {
-      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     } else {
-      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
     }
   });
 
   await test("extension registers one slash command with subcommands", () => {
-    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);
-    process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = configPath;
     const commands: string[] = [];
-    piAutoReviewExtension({
+    piAutoApprovalExtension({
       on: () => {},
       registerCommand: (name) => {
         commands.push(name);
       },
     });
-    assert.deepEqual(commands, ["auto-review"]);
+    assert.deepEqual(commands, ["auto-approval"]);
     rmSync(configPath, { force: true });
     if (previousConfigPath === undefined) {
-      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     } else {
-      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
     }
   });
 
-  await test("auto-review command provides argument completions", async () => {
-    const previousConfigPath = process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+  await test("auto-approval command provides argument completions", async () => {
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);
-    process.env.PI_AUTO_REVIEW_CONFIG_PATH = configPath;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = configPath;
     let getArgumentCompletions: ((argumentPrefix: string) => unknown[] | null | Promise<unknown[] | null>) | undefined;
     let description = "";
-    piAutoReviewExtension({
+    piAutoApprovalExtension({
       on: () => {},
       registerCommand: (_name, definition) => {
         description = definition.description;
@@ -291,9 +332,9 @@ async function run(): Promise<void> {
     ]);
     rmSync(configPath, { force: true });
     if (previousConfigPath === undefined) {
-      delete process.env.PI_AUTO_REVIEW_CONFIG_PATH;
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     } else {
-      process.env.PI_AUTO_REVIEW_CONFIG_PATH = previousConfigPath;
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
     }
   });
 
@@ -386,12 +427,12 @@ async function run(): Promise<void> {
       new SessionApprovalStore(),
       { classifierClient: async () => { throw new Error("model down"); } },
     );
-    assert.deepEqual(result, { block: true, reason: "AI auto-review could not approve this action: model down" });
+    assert.deepEqual(result, { block: true, reason: "AI auto-approval could not approve this action: model down" });
   });
 
   await test("audit logging does not throw", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-test-"));
-    process.env.PI_AUTO_REVIEW_LOGS_DIR = dir;
+    process.env.PI_AUTO_APPROVAL_LOGS_DIR = dir;
     await evaluateToolCall(
       { toolName: "bash", input: { command: "git status" } },
       ctx(),
@@ -399,7 +440,7 @@ async function run(): Promise<void> {
       new SessionApprovalStore(),
     );
     rmSync(dir, { recursive: true, force: true });
-    delete process.env.PI_AUTO_REVIEW_LOGS_DIR;
+    delete process.env.PI_AUTO_APPROVAL_LOGS_DIR;
   });
 }
 

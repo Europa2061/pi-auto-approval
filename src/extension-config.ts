@@ -25,11 +25,15 @@ export function extensionRoot(moduleUrl = import.meta.url): string {
 }
 
 export function configPath(): string {
-  return process.env.PI_AUTO_REVIEW_CONFIG_PATH?.trim() || join(extensionRoot(), "config.jsonc");
+  return process.env.PI_AUTO_APPROVAL_CONFIG_PATH?.trim()
+    || process.env.PI_AUTO_REVIEW_CONFIG_PATH?.trim()
+    || join(extensionRoot(), "config.jsonc");
 }
 
 export function logsDir(): string {
-  return process.env.PI_AUTO_REVIEW_LOGS_DIR?.trim() || join(extensionRoot(), "logs");
+  return process.env.PI_AUTO_APPROVAL_LOGS_DIR?.trim()
+    || process.env.PI_AUTO_REVIEW_LOGS_DIR?.trim()
+    || join(extensionRoot(), "logs");
 }
 
 export function logPath(): string {

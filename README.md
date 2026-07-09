@@ -4,7 +4,7 @@ English | [中文](./README.zh-CN.md)
 
 Pi agent automatic approval extension powered by an AI classifier.
 
-The extension is disabled by default. Use `/auto-review fallback` for the recommended interactive mode, `/auto-review auto` for unattended fail-closed mode, or `/auto-review off` to disable automatic approval.
+The extension is disabled by default. Use `/auto-approval fallback` for the recommended interactive mode, `/auto-approval auto` for unattended fail-closed mode, or `/auto-approval off` to disable automatic approval.
 
 ## Installation
 
@@ -30,35 +30,35 @@ Reload Pi and enable the recommended mode:
 
 ```text
 /reload
-/auto-review fallback
+/auto-approval fallback
 ```
 
 ## Commands
 
-`/auto-review` is the only slash command. Type `/auto-review ` with a trailing space to see available arguments.
+`/auto-approval` is the only slash command. Type `/auto-approval ` with a trailing space to see available arguments.
 
 | Command | Effect |
 | --- | --- |
-| `/auto-review status` | Show current state, approval classifier model, config path, and audit log path. |
-| `/auto-review off` | Disable automatic approval. Tool approvals return to Pi's normal behavior. |
-| `/auto-review fallback` | Enable AI review with human approval fallback when the classifier denies or fails. |
-| `/auto-review auto` | Enable AI review only. Classifier denial or failure blocks the tool call. |
-| `/auto-review model` | Open the model selector for the approval classifier model. |
-| `/auto-review model current` | Use the active Pi session model for approval classification. |
-| `/auto-review model <model-id>` | Use a dedicated classifier model with the current provider. |
-| `/auto-review model <provider>/<model-id>` | Use a dedicated classifier model from a specific provider. |
+| `/auto-approval status` | Show current state, approval classifier model, config path, and audit log path. |
+| `/auto-approval off` | Disable automatic approval. Tool approvals return to Pi's normal behavior. |
+| `/auto-approval fallback` | Enable AI review with human approval fallback when the classifier denies or fails. |
+| `/auto-approval auto` | Enable AI review only. Classifier denial or failure blocks the tool call. |
+| `/auto-approval model` | Open the model selector for the approval classifier model. |
+| `/auto-approval model current` | Use the active Pi session model for approval classification. |
+| `/auto-approval model <model-id>` | Use a dedicated classifier model with the current provider. |
+| `/auto-approval model <provider>/<model-id>` | Use a dedicated classifier model from a specific provider. |
 
 ## Screenshot
 
-`/auto-review` argument completions expose the available modes and model selector directly in Pi.
+`/auto-approval` argument completions expose the available modes and model selector directly in Pi.
 
-![auto-review command autocomplete](docs/images/auto-review-command.png)
+![auto-approval command autocomplete](docs/images/auto-approval-command.png)
 
 ## Architecture
 
 pi-auto-approval sits between Pi tool calls and the normal approval path:
 
-- command layer registers `/auto-review` and persists local config;
+- command layer registers `/auto-approval` and persists local config;
 - routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions;
 - classifier layer projects recent session context and asks the selected model for a structured allow or deny decision;
 - fallback layer asks the user when classifier review cannot safely approve;
@@ -137,7 +137,7 @@ sequenceDiagram
 
 ## Classifier Model
 
-By default, the approval classifier uses the current Pi session model. Use `/auto-review model` to choose another available model from Pi's model selector.
+By default, the approval classifier uses the current Pi session model. Use `/auto-approval model` to choose another available model from Pi's model selector.
 
 The selected value is stored as `classifierModel` in `config.jsonc`. `null` means "use the current session model".
 
@@ -158,4 +158,4 @@ Run the local Pi-side smoke regression with:
 npm run smoke:pi
 ```
 
-The smoke script runs in temporary config and log directories. It verifies `/auto-review fallback`, `/auto-review auto`, safe bash command allow, suspicious bash command human fallback or denial, and JSONL audit log contents.
+The smoke script runs in temporary config and log directories. It verifies `/auto-approval fallback`, `/auto-approval auto`, safe bash command allow, suspicious bash command human fallback or denial, and JSONL audit log contents.

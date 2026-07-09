@@ -138,7 +138,7 @@ export async function classifyAction(
   const completeSimple = client ?? await loadCompleteSimple();
   const model = resolveClassifierModel(ctx, config);
   if (!model) {
-    throw new Error("No active model is available for auto review.");
+    throw new Error("No active model is available for auto approval.");
   }
 
   const response = await withTimeout(
