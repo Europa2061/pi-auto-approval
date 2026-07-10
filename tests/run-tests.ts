@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import piAutoApprovalExtension from "../index.js";
@@ -30,6 +30,16 @@ function ctx(overrides: Partial<ExtensionContextLike> = {}): ExtensionContextLik
     model: { id: "test", api: "test" },
     sessionManager: { getBranch: () => [] },
     ...overrides,
+  };
+}
+
+const CLASSIFIER_DENY_REASON = "AI auto-approval rejected this action. Reason: needs review Do not retry the same action unless the user explicitly approves it.";
+
+function classifierDenyOptions(reason = "needs review"): { classifierClient: NonNullable<Parameters<typeof evaluateToolCall>[4]>["classifierClient"] } {
+  return {
+    classifierClient: async () => ({
+      content: [{ type: "text", text: `{"outcome":"deny","rationale":"${reason}"}` }],
+    }),
   };
 }
 
@@ -90,16 +100,33 @@ async function run(): Promise<void> {
     assert.throws(() => parseReviewDecision("{}"));
   });
 
-  await test("safe command allowlist accepts simple read-only commands only", () => {
+  await test("safe command fast path allows only narrow built-ins", () => {
     const cfg = config();
+    assert.equal(isSafeReadOnlyCommand("pwd", cfg), true);
     assert.equal(isSafeReadOnlyCommand("git status --short", cfg), true);
     assert.equal(isSafeReadOnlyCommand('bash -lc "git diff"', cfg), true);
+    assert.equal(isSafeReadOnlyCommand("git branch --show-current", cfg), true);
+    assert.equal(isSafeReadOnlyCommand("git branch -D stale", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("git checkout main", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("rg needle src", cfg), false);
+  });
+
+  await test("safe command fast path blocks shell composition and dangerous arguments", () => {
+    const cfg = config();
     assert.equal(isSafeReadOnlyCommand("git status && rm -rf tmp", cfg), false);
+    assert.equal(isSafeReadOnlyCommand("git status > status.txt", cfg), false);
     assert.equal(isSafeReadOnlyCommand("npm install", cfg), false);
     assert.equal(isSafeReadOnlyCommand("find . -delete", cfg), false);
     assert.equal(isSafeReadOnlyCommand("find . -exec rm -rf {} +", cfg), false);
     assert.equal(isSafeReadOnlyCommand("sed -n -i s/a/b/ file", cfg), false);
     assert.equal(isSafeReadOnlyCommand("cat /etc/passwd", cfg), false);
+  });
+
+  await test("safe command user allowlist remains explicit", () => {
+    const cfg = config({ safeCommandAllowlist: ["rg *", "cat README.md"] });
+    assert.equal(isSafeReadOnlyCommand("rg needle src", cfg), true);
+    assert.equal(isSafeReadOnlyCommand("cat README.md", cfg), true);
+    assert.equal(isSafeReadOnlyCommand("cat package.json", cfg), false);
   });
 
   await test("disabled extension transparently allows", async () => {
@@ -124,9 +151,23 @@ async function run(): Promise<void> {
       ctx(),
       config({ mode: "auto" }),
       new SessionApprovalStore(),
-      { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"not readonly"}' }] }) },
+      classifierDenyOptions(),
     );
-    assert.deepEqual(result, { block: true, reason: "AI auto-approval rejected this action. Reason: not readonly Do not retry the same action unless the user explicitly approves it." });
+    assert.deepEqual(result, { block: true, reason: CLASSIFIER_DENY_REASON });
+  });
+
+  await test("read-only routing fails closed when metadata check throws", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "custom_report", input: { path: "/tmp/workspace/a.ts" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      {
+        tools: [{ name: "custom_report", isReadOnly: () => { throw new Error("metadata unavailable"); } }],
+        ...classifierDenyOptions(),
+      },
+    );
+    assert.deepEqual(result, { block: true, reason: CLASSIFIER_DENY_REASON });
   });
 
   await test("read-only routing accepts trusted tool metadata", async () => {
@@ -159,6 +200,33 @@ async function run(): Promise<void> {
         { classifierClient: async () => ({ content: [{ type: "text", text: '{"outcome":"deny","rationale":"outside workspace"}' }] }) },
       );
       assert.deepEqual(result, { block: true, reason: "AI auto-approval rejected this action. Reason: outside workspace Do not retry the same action unless the user explicitly approves it." });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  await test("workspace write fast path canonicalizes relative and traversal paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-auto-approval-paths-"));
+    const workspace = join(root, "workspace");
+    const outside = join(root, "outside");
+    mkdirSync(join(workspace, "src"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(workspace, "src", "a.ts"), "");
+    try {
+      const store = new SessionApprovalStore();
+      assert.deepEqual(
+        await evaluateToolCall({ toolName: "edit", input: { path: "src/a.ts" } }, ctx({ cwd: workspace }), config({ mode: "auto" }), store),
+        {},
+      );
+
+      const outsideResult = await evaluateToolCall(
+        { toolName: "edit", input: { path: "../outside/a.ts" } },
+        ctx({ cwd: workspace }),
+        config({ mode: "auto" }),
+        new SessionApprovalStore(),
+        classifierDenyOptions(),
+      );
+      assert.deepEqual(outsideResult, { block: true, reason: CLASSIFIER_DENY_REASON });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

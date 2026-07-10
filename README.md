@@ -129,15 +129,15 @@ sequenceDiagram
 
 `off` means the extension does not make automatic approval decisions.
 
-`fallback` means the classifier gets the first chance to approve risky tool calls. If it allows, the tool runs. If it denies, fails, times out, or the tool is manual-only, Pi asks the human through the approval UI when UI is available.
+`fallback` means local fast paths handle actions that are already known to be low risk, such as trusted read-only tools, workspace-internal writes, explicitly allowlisted safe commands, or exact actions already approved in the session. Other tool calls go to the classifier first. If it allows, the tool runs. If it denies, fails, times out, or the tool is manual-only, Pi asks the human through the approval UI when UI is available.
 
-`auto` means the classifier is the approval gate. A classifier allow runs the tool. A classifier deny, failure, timeout, manual-only tool, or repeated denial blocks the tool call.
+`auto` means non-fast-path tool calls use the classifier as the approval gate. Local fast paths can still allow actions that are statically known to be low risk or already approved in the current session. For reviewed actions, a classifier allow runs the tool; a classifier deny, failure, timeout, manual-only tool, or repeated denial blocks the tool call.
 
 ## Safety
 
-`fallback` is the recommended mode for normal interactive use. It lets the classifier approve low-risk work, but keeps human approval available when the classifier denies, fails, or times out.
+`fallback` is the recommended mode for normal interactive use. It lets local fast paths and the classifier reduce repeated prompts, but keeps human approval available when the classifier denies, fails, or times out.
 
-`auto` is fail-closed and should be used only in trusted unattended contexts. Classifier failures and denials block the tool call.
+`auto` is fail-closed for reviewed actions and should be used only in trusted unattended contexts. Classifier failures and denials block the tool call. Any local fast path must be narrowly defined and statically low risk; otherwise the action is reviewed or blocked.
 
 ## Classifier Model
 
