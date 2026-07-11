@@ -405,6 +405,38 @@ async function run(): Promise<void> {
     }
   });
 
+  await test("auto-approval model command does not accept model IDs as arguments", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoApprovalExtension({
+      on: () => {},
+      registerCommand: (name, definition) => {
+        commandHandlers.set(name, definition.handler);
+      },
+    });
+
+    const notifications: string[] = [];
+    const command = commandHandlers.get("auto-approval");
+    const commandContext = ctx({ ui: { notify: (message) => notifications.push(message) } });
+    await command?.("model review-model", commandContext);
+    await command?.("model review-provider/review-model", commandContext);
+
+    assert.equal(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifierModel, null);
+    assert.deepEqual(notifications.filter((message) => message.includes("Use /auto-approval model")), [
+      "Use /auto-approval model to select an approval classifier model.",
+      "Use /auto-approval model to select an approval classifier model.",
+    ]);
+
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
   await test("extension registers one slash command with subcommands", () => {
     const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);

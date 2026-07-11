@@ -2,13 +2,9 @@
 
 [English](./README.md) | 中文
 
-pi-auto-approval 是一个为 Pi 开发的自动审批扩展，目标是把 Claude Code auto mode 和 Codex Auto-review 风格的 approval workflow 带到 Pi。
+pi-auto-approval 是一个为 Pi 开发的自动审批扩展，参考了 Claude Code auto mode 和 Codex Auto-review 的思路。
 
-当 Pi agent 请求执行工具调用时，扩展会先使用 AI 分类器判断该动作是否可以安全放行。低风险动作可以自动批准；高风险、拒绝、失败或不确定的动作会根据当前模式回退到人工审批，或直接阻止执行。
-
-如果你喜欢 Claude Code auto mode 减少重复确认的体验，或者想在 Pi 中获得类似 Codex Auto-review 的审批边界和人工兜底机制，这个扩展就是为这个场景准备的。
-
-扩展默认关闭。推荐使用 `/auto-approval fallback` 开启带人工兜底的交互模式；使用 `/auto-approval auto` 开启无人值守的失败即拒绝模式；使用 `/auto-approval off` 关闭自动审批。
+当 Pi agent 请求执行工具调用时，扩展会用 AI 分类器判断能否安全放行。低风险动作会自动批准；高风险、拒绝、失败或不确定的动作，会按当前模式回退到人工审批或直接阻止。
 
 ## 安装
 
@@ -49,8 +45,6 @@ pi install -l https://github.com/Europa2061/pi-auto-approval
 | `/auto-approval auto` | 只使用 AI 审批。分类器拒绝或失败时直接阻止工具调用。 |
 | `/auto-approval model` | 打开审批分类器模型选择器。 |
 | `/auto-approval model current` | 使用当前 Pi 会话模型作为审批分类器模型。 |
-| `/auto-approval model <model-id>` | 使用当前 provider 下的指定模型作为独立审批分类器模型。 |
-| `/auto-approval model <provider>/<model-id>` | 使用指定 provider 下的指定模型作为独立审批分类器模型。 |
 
 ## 截图
 
@@ -145,11 +139,16 @@ sequenceDiagram
 
 选中的值会保存为 `config.jsonc` 中的 `classifierModel`。`null` 表示“使用当前会话模型”。
 
-## 文件
-
-- `config.jsonc`: 扩展配置。
-- `logs/pi-auto-approval.jsonl`: 审计开启时记录的审批决策。
-
 ## 参考来源
 
 本扩展是独立的 Pi package。审批工作流和终端交互设计参考了 OpenAI Codex CLI 以及 Claude Code 风格的 coding-agent 权限流程。
+
+## Pi Smoke 回归测试
+
+运行本地 Pi 侧 smoke 回归测试：
+
+```bash
+npm run smoke:pi
+```
+
+该脚本会在临时配置和日志目录中运行，验证 `/auto-approval fallback`、`/auto-approval auto`、安全 bash 命令放行、可疑 bash 命令的人工兜底或拒绝，以及 JSONL 审计日志内容。

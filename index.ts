@@ -126,13 +126,12 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
           notify(ctx, `approval classifier model: ${selected ?? "current"}`);
           break;
         }
-        if (rest === "current" || rest === "default") {
+        if (rest === "current") {
           persist({ ...config, classifierModel: null }, ctx);
           notify(ctx, "approval classifier model: current");
           break;
         }
-        persist({ ...config, classifierModel: rest }, ctx);
-        notify(ctx, `approval classifier model: ${rest}`);
+        notify(ctx, "Use /auto-approval model to select an approval classifier model.", "warning");
         break;
       }
       case "status":
