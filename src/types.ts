@@ -1,5 +1,13 @@
 export type AutoReviewMode = "fallback" | "auto";
 
+export interface AuthResolution {
+  ok: boolean;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  env?: Record<string, string>;
+  error?: string;
+}
+
 export interface AutoReviewConfig {
   enabled: boolean;
   mode: AutoReviewMode;
@@ -55,6 +63,14 @@ export interface ExtensionContextLike {
     getError?: () => string | undefined;
     find?: (provider: string, id: string) => unknown;
     getAvailable?: () => unknown[] | Promise<unknown[]>;
+    // Resolves request auth (apiKey/headers/env) for a model the way pi's
+    // normal model calls do, reading keys/headers from ~/.pi/agent/models.json,
+    // auth storage, and provider env. The classifier must inject this into its
+    // completeSimple call so custom providers (e.g. a `my-proxy` provider whose
+    // apiKey lives in models.json, or an OAuth-backed provider) actually send
+    // auth — otherwise the compat completeSimple path only checks the known
+    // provider env-var map and bypasses models.json entirely.
+    getApiKeyAndHeaders?: (model: unknown) => Promise<AuthResolution>;
   };
   sessionManager?: {
     getEntries?: () => unknown[];

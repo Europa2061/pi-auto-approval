@@ -129,6 +129,50 @@ function resolveClassifierModel(ctx: ExtensionContextLike, config: AutoReviewCon
     : { ...currentModelRecord, id };
 }
 
+/**
+ * Resolve request auth (apiKey/headers/env) for the classifier model through
+ * the same ModelRegistry path pi uses for normal model calls.
+ *
+ * The compat `completeSimple` the classifier invokes only injects an API key
+ * from the known provider env-var map; it never reads ~/.pi/agent/models.json.
+ * Custom providers whose apiKey/headers live in models.json (or OAuth-backed
+ * providers whose token lives in auth storage) therefore send unauthenticated
+ * requests and fail opaquely. By mirroring ModelRegistry.getApiKeyAndHeaders
+ * here and passing the result into `completeSimple` as request options, the
+ * classifier stays on the same auth chain as the rest of pi.
+ */
+async function resolveRequestAuth(
+  ctx: ExtensionContextLike,
+  model: unknown,
+): Promise<{ apiKey?: string; headers?: Record<string, string>; env?: Record<string, string> }> {
+  const registry = toRecord(ctx.modelRegistry);
+  if (typeof registry.getApiKeyAndHeaders !== "function") {
+    return {};
+  }
+  const result = await registry.getApiKeyAndHeaders(model);
+  const record = toRecord(result);
+  if (record.ok !== true) {
+    const error = typeof record.error === "string" && record.error.trim()
+      ? record.error.trim()
+      : "auth resolution reported failure with no error message";
+    throw new Error(`Could not resolve classifier model auth: ${error}`);
+  }
+  // Only carry defined fields so providers that test `options.apiKey !==
+  // undefined` (or iterate option keys) are not handed explicit `undefined`
+  // values for an anonymous/local provider that resolved ok:true with no key.
+  const auth: { apiKey?: string; headers?: Record<string, string>; env?: Record<string, string> } = {};
+  if (typeof record.apiKey === "string") {
+    auth.apiKey = record.apiKey;
+  }
+  if (record.headers && typeof record.headers === "object") {
+    auth.headers = record.headers as Record<string, string>;
+  }
+  if (record.env && typeof record.env === "object") {
+    auth.env = record.env as Record<string, string>;
+  }
+  return auth;
+}
+
 export async function classifyAction(
   ctx: ExtensionContextLike,
   config: AutoReviewConfig,
@@ -141,6 +185,11 @@ export async function classifyAction(
     throw new Error("No active model is available for auto approval.");
   }
 
+  // Inject request auth resolved through ModelRegistry so custom/OAuth
+  // providers whose credentials live in models.json or auth storage are
+  // authenticated, just like pi's normal model calls. See resolveRequestAuth.
+  const auth = await resolveRequestAuth(ctx, model);
+
   const response = await withTimeout(
     completeSimple(model, {
       systemPrompt: buildSystemPrompt(config),
@@ -151,9 +200,28 @@ export async function classifyAction(
       }],
     }, {
       temperature: 0,
+      ...auth,
     }),
     config.classifierTimeoutSeconds * 1000,
   );
 
-  return parseReviewDecision(extractAssistantText(response));
+  const responseText = extractAssistantText(response);
+  if (!responseText) {
+    // The provider may return a content-empty assistant message when the
+    // underlying request failed (HTTP 403, auth errors, model setup failures,
+    // etc.). pi-ai's lazyStream surfaces such setup failures as an error event
+    // with `content: []` plus an `errorMessage` field, which collapses to an
+    // empty string here. Surface that upstream errorMessage instead of the
+    // generic "Classifier returned no text." so the deny reason points at the
+    // real cause rather than masking it.
+    const responseRecord = toRecord(response);
+    const upstreamError = typeof responseRecord.errorMessage === "string"
+      ? responseRecord.errorMessage.trim()
+      : "";
+    if (upstreamError) {
+      throw new Error(`Classifier request failed: ${upstreamError}`);
+    }
+    throw new Error("Classifier returned no text.");
+  }
+  return parseReviewDecision(responseText);
 }
