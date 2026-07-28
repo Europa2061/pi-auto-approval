@@ -1,6 +1,7 @@
 import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ReviewSubject } from "./types.js";
 import { buildProjectedContext } from "./context-projection.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { getProviderAttributionHeaders } from "./provider-attribution.js";
 import { toRecord } from "./common.js";
 
 export type ClassifierClient = (
@@ -189,6 +190,16 @@ export async function classifyAction(
   // providers whose credentials live in models.json or auth storage are
   // authenticated, just like pi's normal model calls. See resolveRequestAuth.
   const auth = await resolveRequestAuth(ctx, model);
+
+  // Merge pi's provider attribution headers (OpenRouter HTTP-Referer /
+  // X-OpenRouter-Title, NVIDIA billing origin, Cloudflare User-Agent) under
+  // any registry-provided headers, so classifier requests carry the same
+  // attribution as pi's normal model calls. Registry headers win on
+  // conflict, matching pi core's merge order.
+  const headers = { ...getProviderAttributionHeaders(model), ...auth.headers };
+  if (Object.keys(headers).length > 0) {
+    auth.headers = headers;
+  }
 
   const response = await withTimeout(
     completeSimple(model, {
