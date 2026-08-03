@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AutoReviewConfig, AutoReviewMode } from "./types.js";
+import type { AutoReviewConfig, AutoReviewMode, TranscriptContextConfig } from "./types.js";
 import { toRecord } from "./common.js";
 
 export const EXTENSION_ID = "pi-auto-approval";
@@ -17,6 +17,13 @@ export const DEFAULT_CONFIG: AutoReviewConfig = {
   allow: [],
   deny: [],
   environment: "",
+  transcriptContext: {
+    enabled: false,
+    tailUserMessages: 3,
+    tailAssistantMessages: 3,
+    maxLinesPerUserMessage: 50,
+    maxTokensPerAssistantMessage: 200,
+  },
   audit: true,
 };
 
@@ -58,6 +65,25 @@ function normalizeMode(value: unknown): AutoReviewMode {
   return value === "auto" ? "auto" : "fallback";
 }
 
+function clampNonNegativeInt(value: unknown, fallback: number, max = 1000): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return Math.min(Math.trunc(value), max);
+}
+
+function normalizeTranscriptContext(value: unknown): TranscriptContextConfig {
+  const record = toRecord(value);
+  const def = DEFAULT_CONFIG.transcriptContext;
+  return {
+    enabled: record.enabled === true,
+    tailUserMessages: clampNonNegativeInt(record.tailUserMessages, def.tailUserMessages),
+    tailAssistantMessages: clampNonNegativeInt(record.tailAssistantMessages, def.tailAssistantMessages),
+    maxLinesPerUserMessage: clampNonNegativeInt(record.maxLinesPerUserMessage, def.maxLinesPerUserMessage),
+    maxTokensPerAssistantMessage: clampNonNegativeInt(record.maxTokensPerAssistantMessage, def.maxTokensPerAssistantMessage),
+  };
+}
+
 export function normalizeConfig(raw: unknown): AutoReviewConfig {
   const record = toRecord(raw);
   return {
@@ -73,6 +99,7 @@ export function normalizeConfig(raw: unknown): AutoReviewConfig {
     allow: stringArray(record.allow),
     deny: stringArray(record.deny),
     environment: typeof record.environment === "string" ? record.environment : "",
+    transcriptContext: normalizeTranscriptContext(record.transcriptContext),
     audit: record.audit !== false,
   };
 }

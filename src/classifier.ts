@@ -195,7 +195,7 @@ export async function classifyAction(
       systemPrompt: buildSystemPrompt(config),
       messages: [{
         role: "user",
-        content: buildProjectedContext(ctx, subject),
+        content: buildProjectedContext(ctx, config, subject),
         timestamp: Date.now(),
       }],
     }, {

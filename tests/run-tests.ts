@@ -44,6 +44,23 @@ function classifierDenyOptions(reason = "needs review"): { classifierClient: Non
 }
 
 async function run(): Promise<void> {
+  await test("normalizeConfig defaults transcriptContext to disabled", () => {
+    assert.equal(normalizeConfig({}).transcriptContext.enabled, false);
+    assert.equal(normalizeConfig({}).transcriptContext.tailUserMessages, 3);
+    assert.equal(normalizeConfig({}).transcriptContext.maxTokensPerAssistantMessage, 200);
+    const enabled = normalizeConfig({ transcriptContext: { enabled: true, tailAssistantMessages: 5, maxTokensPerAssistantMessage: 50 } }).transcriptContext;
+    assert.equal(enabled.enabled, true);
+    assert.equal(enabled.tailAssistantMessages, 5);
+    assert.equal(enabled.maxTokensPerAssistantMessage, 50);
+  });
+
+  await test("normalizeConfig clamps invalid transcriptContext values to defaults", () => {
+    const normalized = normalizeConfig({ transcriptContext: { tailUserMessages: -3, maxTokensPerAssistantMessage: "bad", maxLinesPerUserMessage: 1e9 } }).transcriptContext;
+    assert.equal(normalized.tailUserMessages, 3);
+    assert.equal(normalized.maxTokensPerAssistantMessage, 200);
+    assert.equal(normalized.maxLinesPerUserMessage, 1000);
+  });
+
   await test("normalizeConfig defaults to disabled fallback", () => {
     assert.deepEqual(normalizeConfig({}), DEFAULT_CONFIG);
     assert.equal(normalizeConfig({ enabled: true, mode: "auto" }).mode, "auto");
@@ -501,7 +518,7 @@ async function run(): Promise<void> {
           },
         ],
       },
-    }), {
+    }), { ...DEFAULT_CONFIG, transcriptContext: { ...DEFAULT_CONFIG.transcriptContext, enabled: false } }, {
       toolName: "bash",
       input: { command: "rm /tmp/pi-auto-approval-test/delete-target.json" },
       cwd: "/workspace/project",
@@ -510,6 +527,64 @@ async function run(): Promise<void> {
     });
     assert.match(projected, /Latest user request:\n删除文件/);
     assert.match(projected, /Retained context:\nuser: 删除文件/);
+  });
+
+  await test("projected context replaces legacy block with transcript tail when enabled", () => {
+    const entries = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "first user message" }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "one two three four five six seven eight nine ten" }] } },
+      { type: "message", message: { role: "user", content: "删除文件：/tmp/delete-target.json" } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "line1\nline2\nline3\nline4\nline5" }] } },
+    ];
+    const projected = buildProjectedContext(ctx({ sessionManager: { getBranch: () => entries } }), {
+      ...DEFAULT_CONFIG,
+      transcriptContext: {
+        enabled: true,
+        tailUserMessages: 2,
+        tailAssistantMessages: 2,
+        maxLinesPerUserMessage: 2,
+        maxTokensPerAssistantMessage: 3,
+      },
+    }, {
+      toolName: "bash",
+      input: { command: "rm /tmp/delete-target.json" },
+      cwd: "/workspace/project",
+      actionSummary: "bash: rm /tmp/delete-target.json",
+      actionHash: "test",
+    });
+    // Legacy blocks must be gone.
+    assert.equal(/Latest user request:/.test(projected), false);
+    assert.equal(/Retained context:/.test(projected), false);
+    // Transcript block present with both roles, in chronological order.
+    assert.match(projected, /Transcript context:/);
+    assert.match(projected, /Recent user messages:\nuser: first user message\nuser: 删除文件：\/tmp\/delete-target.json/);
+    // Assistant messages truncated to first 3 tokens.
+    assert.match(projected, /Recent assistant messages:\nassistant: one two three\nassistant: line1 line2 line3/);
+  });
+
+  await test("projected context transcript tail truncates user messages to last N lines", () => {
+    const longUser = Array.from({ length: 6 }, (_, i) => `line${i + 1}`).join("\n");
+    const entries = [
+      { type: "message", message: { role: "user", content: [{ type: "text", text: longUser }] } },
+    ];
+    const projected = buildProjectedContext(ctx({ sessionManager: { getBranch: () => entries } }), {
+      ...DEFAULT_CONFIG,
+      transcriptContext: {
+        enabled: true,
+        tailUserMessages: 1,
+        tailAssistantMessages: 0,
+        maxLinesPerUserMessage: 2,
+        maxTokensPerAssistantMessage: 0,
+      },
+    }, {
+      toolName: "bash",
+      input: { command: "ls" },
+      cwd: "/workspace/project",
+      actionSummary: "bash: ls",
+      actionHash: "test",
+    });
+    assert.match(projected, /user: line5\nline6/);
+    assert.equal(/line4/.test(projected), false);
   });
 
   await test("classifier receives latest user request for current approval", async () => {

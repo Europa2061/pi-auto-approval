@@ -139,6 +139,22 @@ By default, the approval classifier uses the current Pi session model. Use `/aut
 
 The selected value is stored as `classifierModel` in `config.jsonc`. `null` means "use the current session model".
 
+## Transcript Context
+
+By default the classifier review prompt includes only the latest user request and a retained user/tool tail. Enable `transcriptContext` in `config.jsonc` to replace that block with a richer, coherent transcript section: the last `tailUserMessages` user messages (each truncated to its last `maxLinesPerUserMessage` lines) and the last `tailAssistantMessages` assistant messages (each truncated to its first `maxTokensPerAssistantMessage` tokens).
+
+```jsonc
+"transcriptContext": {
+  "enabled": true,
+  "tailUserMessages": 3,
+  "tailAssistantMessages": 3,
+  "maxLinesPerUserMessage": 50,
+  "maxTokensPerAssistantMessage": 200
+}
+```
+
+When disabled (the default), the original projection behavior is preserved unchanged. Transcript text is treated as untrusted evidence by the system prompt, the same as tool arguments and outputs; it is never part of the action hash or classifier cache key, so toggling it mid-session does not invalidate prior approvals.
+
 ## References
 
 This extension is an independent Pi package. Its approval workflow and terminal interaction design were informed by OpenAI Codex CLI and Claude Code-style coding-agent permission flows.
