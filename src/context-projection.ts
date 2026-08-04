@@ -53,15 +53,15 @@ function truncateToTailLines(text: string, maxLines: number): string {
   return lines.length <= maxLines ? text : lines.slice(-maxLines).join("\n");
 }
 
-// Cheap token approximation: whitespace-delimited words. Keeps the first
-// `maxTokens` tokens of an assistant response, where the reasoning is most
-// relevant for authorization review.
-function truncateToFirstTokens(text: string, maxTokens: number): string {
+// Cheap token approximation: whitespace-delimited words. Keeps the last
+// `maxTokens` tokens of an assistant response, where the final decisions and
+// tool calls are most relevant for authorization review.
+function truncateToLastTokens(text: string, maxTokens: number): string {
   if (maxTokens <= 0) {
     return "";
   }
   const tokens = text.trim().split(/\s+/).filter(Boolean);
-  return tokens.length <= maxTokens ? text.trim() : tokens.slice(0, maxTokens).join(" ");
+  return tokens.length <= maxTokens ? text.trim() : tokens.slice(-maxTokens).join(" ");
 }
 
 function collectTailByRole(
@@ -104,7 +104,7 @@ function buildTranscriptBlock(entries: unknown[], tc: TranscriptContextConfig): 
     .map((entry) => truncateToTailLines(entry.text, tc.maxLinesPerUserMessage).trim())
     .filter(Boolean);
   const assistantMessages = collectTailByRole(entries, isAssistantRole, tc.tailAssistantMessages)
-    .map((entry) => truncateToFirstTokens(entry.text, tc.maxTokensPerAssistantMessage).trim())
+    .map((entry) => truncateToLastTokens(entry.text, tc.maxTokensPerAssistantMessage).trim())
     .filter(Boolean);
 
   const sections: string[] = [];

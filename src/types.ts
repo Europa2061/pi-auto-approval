@@ -13,7 +13,7 @@ export interface TranscriptContextConfig {
  * (latest user request + retained user/tool tail). When true, the projection
  * is replaced by a coherent transcript block: tail N user messages (each
  * truncated to its last `maxLinesPerUserMessage` lines) and tail N assistant
- * messages (each truncated to its first `maxTokensPerAssistantMessage`
+ * messages (each truncated to its last `maxTokensPerAssistantMessage`
  * tokens). */
  enabled: boolean;
  tailUserMessages: number;

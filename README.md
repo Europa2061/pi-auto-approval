@@ -141,7 +141,7 @@ The selected value is stored as `classifierModel` in `config.jsonc`. `null` mean
 
 ## Transcript Context
 
-By default the classifier review prompt includes only the latest user request and a retained user/tool tail. Enable `transcriptContext` in `config.jsonc` to replace that block with a richer, coherent transcript section: the last `tailUserMessages` user messages (each truncated to its last `maxLinesPerUserMessage` lines) and the last `tailAssistantMessages` assistant messages (each truncated to its first `maxTokensPerAssistantMessage` tokens).
+By default the classifier review prompt includes only the latest user request and a retained user/tool tail. Enable `transcriptContext` in `config.jsonc` to replace that block with a richer, coherent transcript section: the last `tailUserMessages` user messages (each truncated to its last `maxLinesPerUserMessage` lines) and the last `tailAssistantMessages` assistant messages (each truncated to its last `maxTokensPerAssistantMessage` tokens).
 
 ```jsonc
 "transcriptContext": {

@@ -13,7 +13,7 @@
   // request" + retained user/tool tail with a coherent transcript block: the
   // last `tailUserMessages` user messages (each truncated to its last
   // `maxLinesPerUserMessage` lines) and the last `tailAssistantMessages`
-  // assistant messages (each truncated to its first
+  // assistant messages (each truncated to its last
   // `maxTokensPerAssistantMessage` tokens). Disabled keeps the original
   // projection behavior.
   "transcriptContext": {

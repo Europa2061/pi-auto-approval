@@ -558,8 +558,8 @@ async function run(): Promise<void> {
     // Transcript block present with both roles, in chronological order.
     assert.match(projected, /Transcript context:/);
     assert.match(projected, /Recent user messages:\nuser: first user message\nuser: 删除文件：\/tmp\/delete-target.json/);
-    // Assistant messages truncated to first 3 tokens.
-    assert.match(projected, /Recent assistant messages:\nassistant: one two three\nassistant: line1 line2 line3/);
+    // Assistant messages truncated to last 3 tokens.
+    assert.match(projected, /Recent assistant messages:\nassistant: eight nine ten\nassistant: line3 line4 line5/);
   });
 
   await test("projected context transcript tail truncates user messages to last N lines", () => {
