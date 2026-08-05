@@ -7,6 +7,7 @@ import { classifyAction, parseReviewDecision } from "../src/classifier.js";
 import { buildProjectedContext } from "../src/context-projection.js";
 import { configPath, DEFAULT_CONFIG, loadConfig, logsDir, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
+import { columnWidth, truncateVisible } from "../src/model-selector.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
 import type { AutoReviewConfig, ExtensionContextLike } from "../src/types.js";
@@ -397,6 +398,81 @@ async function run(): Promise<void> {
     assert.equal(rendered.some((line) => line.includes("current [auto-approval]")), true);
     assert.equal(rendered.some((line) => line.includes("review-model [review-provider]")), true);
     assert.equal(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifierModel, "review-provider/review-model");
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
+  await test("model selector truncates every rendered line to the terminal width", async () => {
+    // truncateVisible unit checks: ellipsis reserved, ANSI preserved + reset,
+    // CJK counted as two columns.
+    assert.equal(truncateVisible("abcdef", 3), "abc");
+    assert.equal(truncateVisible("abcdef", 5), "ab...");
+    assert.equal(truncateVisible("abcdef", 10), "abcdef");
+    assert.equal(truncateVisible("\u001b[31mabcdef\u001b[0m", 5), "\u001b[31mab\u001b[0m...");
+    assert.equal(truncateVisible("中文ab", 5), "中...");
+    assert.equal(truncateVisible("中文ab", 4), "...");
+    assert.equal(truncateVisible("", 10), "");
+    assert.equal(truncateVisible("abcdef", 0), "");
+
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoApprovalExtension({
+      on: () => {},
+      registerCommand: (name, definition) => {
+        commandHandlers.set(name, definition.handler);
+      },
+    });
+
+    let rendered: string[] = [];
+    await commandHandlers.get("auto-approval")?.("model", ctx({
+      mode: "tui",
+      ui: {
+        notify: () => {},
+        custom: async (factory) => new Promise((resolve) => {
+          const component = factory(
+            { requestRender: () => {} },
+            { fg: (_name: string, text: string) => text, bold: (text: string) => text },
+            {},
+            resolve,
+          ) as { render: (width: number) => string[]; handleInput: (data: string) => void };
+          // A model id long enough that the rendered row would overflow a
+          // narrow terminal if lines were not truncated.
+          rendered = component.render(20);
+          // Resolve the custom UI promise (select the current item) so the
+          // command handler can finish; otherwise the test hangs forever.
+          component.handleInput("\n");
+        }),
+      },
+      modelRegistry: {
+        getAvailable: () => [
+          { provider: "review-provider", id: "a-very-long-model-name-that-would-overflow-the-terminal-width", name: "A Very Long Model Name That Would Overflow" },
+          { provider: "other-provider", id: "other-model", name: "Other Model" },
+        ],
+      },
+    }));
+
+    const lineWidth = (line: string): number => {
+      let width = 0;
+      for (const part of line.split(/\x1b\[[0-9;]*m/)) {
+        for (const char of part) {
+          width += columnWidth(char);
+        }
+      }
+      return width;
+    };
+    // Regression: pi crashes with "Rendered line exceeds terminal width" when
+    // a custom TUI component emits a line wider than the terminal.
+    for (const line of rendered) {
+      assert.ok(lineWidth(line) <= 20, `rendered line exceeds width: ${JSON.stringify(line)}`);
+    }
+    assert.equal(rendered.some((line) => line.includes("...")), true);
+
     rmSync(dir, { recursive: true, force: true });
     if (previousConfigPath === undefined) {
       delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
