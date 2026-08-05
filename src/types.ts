@@ -125,3 +125,18 @@ export interface AuditEntry {
   reason?: string;
   durationMs?: number;
 }
+
+export interface TraceEntry {
+  id: string;
+  timestamp: number;
+  toolName: string;
+  actionSummary: string;
+  actionHash: string;
+  outcome: "allow" | "deny" | "error";
+  cwd: string;
+  systemPrompt: string;
+  userMessage: string;
+  classifierDecision?: ReviewDecision;
+  error?: string;
+  durationMs?: number;
+}

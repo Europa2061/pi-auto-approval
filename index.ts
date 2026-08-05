@@ -1,7 +1,10 @@
+import { join, dirname } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import type { AutoReviewConfig, ExtensionContextLike, ToolCallEventLike } from "./src/types.js";
-import { configPath, DEFAULT_CONFIG, loadConfig, logPath, saveConfig } from "./src/extension-config.js";
+import { configPath, DEFAULT_CONFIG, loadConfig, logPath, logsDir, saveConfig } from "./src/extension-config.js";
 import { evaluateToolCall } from "./src/decision.js";
 import { SessionApprovalStore } from "./src/session-approval-store.js";
+import { TraceStore } from "./src/trace-store.js";
 import { selectClassifierModel } from "./src/model-selector.js";
 
 type ExtensionAPI = {
@@ -59,6 +62,11 @@ const COMMAND_ARGUMENTS = [
   { value: "auto", label: "auto", description: "AI review only; fail closed on failure or denial" },
   { value: "model", label: "model", description: "Select approval classifier model" },
   { value: "model current", label: "model current", description: "Use the active Pi session model for approval" },
+  { value: "trace", label: "trace", description: "Show the last classifier trace" },
+  { value: "trace 1", label: "trace 1", description: "Show the most recent classifier trace" },
+  { value: "trace 5", label: "trace 5", description: "Show the last 5 classifier traces" },
+  { value: "trace clear", label: "trace clear", description: "Clear in-memory traces" },
+  { value: "trace export", label: "trace export", description: "Export all traces to a JSON file" },
 ];
 
 function getAutoReviewArgumentCompletions(argumentPrefix: string): Array<{ value: string; label: string; description: string }> | null {
@@ -73,6 +81,7 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
   let loadResult = loadConfig();
   let config = loadResult.config;
   const approvals = new SessionApprovalStore();
+  const traces = new TraceStore();
   let lastContext: ExtensionContextLike | null = null;
 
   function refresh(ctx?: ExtensionContextLike): void {
@@ -146,11 +155,63 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
           ].join("\n"),
         );
         break;
+      case "trace": {
+        const countArg = rest.trim().toLowerCase();
+        if (countArg === "clear") {
+          traces.clear();
+          notify(ctx, "In-memory traces cleared.");
+          break;
+        }
+        if (countArg === "export") {
+          const traceFile = join(logsDir(), "traces-export.json");
+          const all = traces.getRecent(1000);
+          if (!all.length) {
+            notify(ctx, "No traces to export.");
+            break;
+          }
+          try {
+            mkdirSync(dirname(traceFile), { recursive: true });
+            writeFileSync(traceFile, JSON.stringify(all, null, 2), "utf-8");
+            notify(ctx, `Exported ${all.length} trace(s) to ${traceFile}`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            notify(ctx, `Failed to export traces: ${msg}`, "error");
+          }
+          break;
+        }
+        const count = countArg === "" ? 1 : parseInt(countArg, 10);
+        const entries = traces.getRecent(Number.isFinite(count) && count > 0 ? count : 1);
+        if (!entries.length) {
+          notify(ctx, `No traces available. Run a classifier action first.\nFull trace log: ${join(logsDir(), "traces.jsonl")}`);
+          break;
+        }
+        const parts: string[] = [];
+        for (const entry of entries) {
+          parts.push(
+            `\n--- Trace #${entry.id.slice(0, 8)} ---`,
+            `tool: ${entry.toolName}`,
+            `summary: ${entry.actionSummary}`,
+            `outcome: ${entry.outcome}`,
+            `duration: ${entry.durationMs ?? "?"}ms`,
+            `system: ${entry.systemPrompt.slice(0, 200)}${entry.systemPrompt.length > 200 ? "…" : ""}`,
+            `user: ${entry.userMessage.slice(0, 500)}${entry.userMessage.length > 500 ? "…" : ""}`,
+          );
+          if (entry.classifierDecision) {
+            parts.push(`decision: ${JSON.stringify(entry.classifierDecision)}`);
+          }
+          if (entry.error) {
+            parts.push(`error: ${entry.error}`);
+          }
+        }
+        parts.push(`\nFull trace log: ${join(logsDir(), "traces.jsonl")}`);
+        notify(ctx, parts.join("\n"));
+        break;
+      }
     }
   }
 
   pi.registerCommand?.("auto-approval", {
-    description: "args: status | off | fallback | auto | model",
+    description: "args: status | off | fallback | auto | model | trace",
     getArgumentCompletions: getAutoReviewArgumentCompletions,
     handler: async (args, ctx) => {
       await runCommand(parseCommand(args), parseCommandRest(args), ctx);
@@ -159,6 +220,7 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContextLike) => {
     approvals.clear();
+    traces.clear();
     refresh(ctx);
   });
 
@@ -177,7 +239,7 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
     if (loadResult.created || loadResult.warning) {
       refresh(ctx);
     }
-    return evaluateToolCall(event, ctx, config, approvals, {
+    return evaluateToolCall(event, ctx, config, approvals, traces, {
       tools: pi.getAllTools?.() ?? [],
     });
   });
