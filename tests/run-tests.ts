@@ -599,6 +599,13 @@ async function run(): Promise<void> {
           ],
         },
       },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: "{\"thinking\":\"serialized reasoning\",\"type\":\"thinking\"}\n{\"name\":\"bash\",\"type\":\"toolCall\"}",
+        },
+      },
     ];
     const projected = buildProjectedContext(ctx({ sessionManager: { getBranch: () => entries } }), {
       ...DEFAULT_CONFIG,
@@ -617,7 +624,7 @@ async function run(): Promise<void> {
       actionHash: "test",
     });
     assert.match(projected, /Recent assistant messages:\nassistant: Visible/);
-    assert.equal(/private reasoning|rm -rf|\/secret/.test(projected), false);
+    assert.equal(/private reasoning|rm -rf|\/secret|serialized reasoning|toolCall/.test(projected), false);
   });
 
   await test("projected context transcript tail truncates user messages to last N lines", () => {

@@ -27,9 +27,9 @@ function stringifyMessageContent(content: unknown): string | null {
 // Assistant turns can contain thinking and tool-call blocks alongside visible
 // text. Include only Pi's explicit text blocks; never serialize other blocks.
 function stringifyAssistantTextContent(content: unknown): string | null {
-  if (typeof content === "string") {
-    return content;
-  }
+  // Persisted Pi AssistantMessage content is an array of typed blocks. Do not
+  // accept strings here: some providers serialize thinking/tool events as a
+  // string, and treating that string as text would leak those events.
   if (!Array.isArray(content)) {
     return null;
   }
