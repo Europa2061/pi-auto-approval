@@ -14,6 +14,17 @@
     "allow": { "type": "array", "items": { "type": "string" }, "default": [] },
     "deny": { "type": "array", "items": { "type": "string" }, "default": [] },
     "environment": { "type": "string", "default": "" },
+    "transcriptContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "tailUserMessages": { "type": "integer", "minimum": 0, "default": 3 },
+        "tailAssistantMessages": { "type": "integer", "minimum": 0, "default": 3 },
+        "maxLinesPerUserMessage": { "type": "integer", "minimum": 0, "default": 50 },
+        "maxCharsPerAssistantMessage": { "type": "integer", "minimum": 0, "default": 800 }
+      }
+    },
     "audit": { "type": "boolean", "default": true }
   }
 }

@@ -8,6 +8,20 @@ export interface AuthResolution {
   error?: string;
 }
 
+export interface TranscriptContextConfig {
+  /** Master switch. When false, the classifier uses the legacy projection
+ * (latest user request + retained user/tool tail). When true, the projection
+ * is replaced by a coherent transcript block: tail N user messages (each
+ * truncated to its last `maxLinesPerUserMessage` lines) and tail N assistant
+ * messages (text response blocks only, each truncated to its first
+ * `maxCharsPerAssistantMessage` characters). */
+ enabled: boolean;
+ tailUserMessages: number;
+ tailAssistantMessages: number;
+ maxLinesPerUserMessage: number;
+ maxCharsPerAssistantMessage: number;
+}
+
 export interface AutoReviewConfig {
   enabled: boolean;
   mode: AutoReviewMode;
@@ -19,6 +33,7 @@ export interface AutoReviewConfig {
   allow: string[];
   deny: string[];
   environment: string;
+  transcriptContext: TranscriptContextConfig;
   audit: boolean;
 }
 
@@ -108,5 +123,20 @@ export interface AuditEntry {
   classifierDecision?: ReviewDecision;
   humanDecision?: string;
   reason?: string;
+  durationMs?: number;
+}
+
+export interface TraceEntry {
+  id: string;
+  timestamp: number;
+  toolName: string;
+  actionSummary: string;
+  actionHash: string;
+  outcome: "allow" | "deny" | "error";
+  cwd: string;
+  systemPrompt: string;
+  userMessage: string;
+  classifierDecision?: ReviewDecision;
+  error?: string;
   durationMs?: number;
 }
