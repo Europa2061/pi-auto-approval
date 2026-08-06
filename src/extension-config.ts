@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG: AutoReviewConfig = {
     tailUserMessages: 3,
     tailAssistantMessages: 3,
     maxLinesPerUserMessage: 50,
-    maxTokensPerAssistantMessage: 200,
+    maxCharsPerAssistantMessage: 800,
   },
   audit: true,
 };
@@ -80,7 +80,7 @@ function normalizeTranscriptContext(value: unknown): TranscriptContextConfig {
     tailUserMessages: clampNonNegativeInt(record.tailUserMessages, def.tailUserMessages),
     tailAssistantMessages: clampNonNegativeInt(record.tailAssistantMessages, def.tailAssistantMessages),
     maxLinesPerUserMessage: clampNonNegativeInt(record.maxLinesPerUserMessage, def.maxLinesPerUserMessage),
-    maxTokensPerAssistantMessage: clampNonNegativeInt(record.maxTokensPerAssistantMessage, def.maxTokensPerAssistantMessage),
+    maxCharsPerAssistantMessage: clampNonNegativeInt(record.maxCharsPerAssistantMessage, def.maxCharsPerAssistantMessage),
   };
 }
 

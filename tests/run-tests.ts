@@ -65,17 +65,17 @@ async function run(): Promise<void> {
   await test("normalizeConfig defaults transcriptContext to disabled", () => {
     assert.equal(normalizeConfig({}).transcriptContext.enabled, false);
     assert.equal(normalizeConfig({}).transcriptContext.tailUserMessages, 3);
-    assert.equal(normalizeConfig({}).transcriptContext.maxTokensPerAssistantMessage, 200);
-    const enabled = normalizeConfig({ transcriptContext: { enabled: true, tailAssistantMessages: 5, maxTokensPerAssistantMessage: 50 } }).transcriptContext;
+    assert.equal(normalizeConfig({}).transcriptContext.maxCharsPerAssistantMessage, 800);
+    const enabled = normalizeConfig({ transcriptContext: { enabled: true, tailAssistantMessages: 5, maxCharsPerAssistantMessage: 50 } }).transcriptContext;
     assert.equal(enabled.enabled, true);
     assert.equal(enabled.tailAssistantMessages, 5);
-    assert.equal(enabled.maxTokensPerAssistantMessage, 50);
+    assert.equal(enabled.maxCharsPerAssistantMessage, 50);
   });
 
   await test("normalizeConfig clamps invalid transcriptContext values to defaults", () => {
-    const normalized = normalizeConfig({ transcriptContext: { tailUserMessages: -3, maxTokensPerAssistantMessage: "bad", maxLinesPerUserMessage: 1e9 } }).transcriptContext;
+    const normalized = normalizeConfig({ transcriptContext: { tailUserMessages: -3, maxCharsPerAssistantMessage: "bad", maxLinesPerUserMessage: 1e9 } }).transcriptContext;
     assert.equal(normalized.tailUserMessages, 3);
-    assert.equal(normalized.maxTokensPerAssistantMessage, 200);
+    assert.equal(normalized.maxCharsPerAssistantMessage, 800);
     assert.equal(normalized.maxLinesPerUserMessage, 1000);
   });
 
@@ -566,7 +566,7 @@ async function run(): Promise<void> {
         tailUserMessages: 2,
         tailAssistantMessages: 2,
         maxLinesPerUserMessage: 2,
-        maxTokensPerAssistantMessage: 3,
+        maxCharsPerAssistantMessage: 8,
       },
     }, {
       toolName: "bash",
@@ -581,8 +581,43 @@ async function run(): Promise<void> {
     // Transcript block present with both roles, in chronological order.
     assert.match(projected, /Transcript context:/);
     assert.match(projected, /Recent user messages:\nuser: first user message\nuser: 删除文件：\/tmp\/delete-target.json/);
-    // Assistant messages truncated to last 3 tokens.
-    assert.match(projected, /Recent assistant messages:\nassistant: eight nine ten\nassistant: line3 line4 line5/);
+    // Assistant messages are truncated to their first 8 characters.
+    assert.match(projected, /Recent assistant messages:\nassistant: one two\nassistant: line1/);
+  });
+
+  await test("projected context includes only assistant text blocks and their prefix", () => {
+    const entries = [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "private reasoning" },
+            { type: "toolCall", name: "bash", arguments: { command: "rm -rf /" } },
+            { type: "text", text: "Visible response" },
+            { type: "toolCall", name: "read", arguments: { path: "/secret" } },
+          ],
+        },
+      },
+    ];
+    const projected = buildProjectedContext(ctx({ sessionManager: { getBranch: () => entries } }), {
+      ...DEFAULT_CONFIG,
+      transcriptContext: {
+        enabled: true,
+        tailUserMessages: 0,
+        tailAssistantMessages: 1,
+        maxLinesPerUserMessage: 0,
+        maxCharsPerAssistantMessage: 7,
+      },
+    }, {
+      toolName: "bash",
+      input: { command: "ls" },
+      cwd: "/workspace/project",
+      actionSummary: "bash: ls",
+      actionHash: "test",
+    });
+    assert.match(projected, /Recent assistant messages:\nassistant: Visible/);
+    assert.equal(/private reasoning|rm -rf|\/secret/.test(projected), false);
   });
 
   await test("projected context transcript tail truncates user messages to last N lines", () => {
@@ -597,7 +632,7 @@ async function run(): Promise<void> {
         tailUserMessages: 1,
         tailAssistantMessages: 0,
         maxLinesPerUserMessage: 2,
-        maxTokensPerAssistantMessage: 0,
+        maxCharsPerAssistantMessage: 0,
       },
     }, {
       toolName: "bash",

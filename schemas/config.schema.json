@@ -22,7 +22,7 @@
         "tailUserMessages": { "type": "integer", "minimum": 0, "default": 3 },
         "tailAssistantMessages": { "type": "integer", "minimum": 0, "default": 3 },
         "maxLinesPerUserMessage": { "type": "integer", "minimum": 0, "default": 50 },
-        "maxTokensPerAssistantMessage": { "type": "integer", "minimum": 0, "default": 200 }
+        "maxCharsPerAssistantMessage": { "type": "integer", "minimum": 0, "default": 800 }
       }
     },
     "audit": { "type": "boolean", "default": true }

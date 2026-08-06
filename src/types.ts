@@ -13,13 +13,13 @@ export interface TranscriptContextConfig {
  * (latest user request + retained user/tool tail). When true, the projection
  * is replaced by a coherent transcript block: tail N user messages (each
  * truncated to its last `maxLinesPerUserMessage` lines) and tail N assistant
- * messages (each truncated to its last `maxTokensPerAssistantMessage`
- * tokens). */
+ * messages (text response blocks only, each truncated to its first
+ * `maxCharsPerAssistantMessage` characters). */
  enabled: boolean;
  tailUserMessages: number;
  tailAssistantMessages: number;
  maxLinesPerUserMessage: number;
- maxTokensPerAssistantMessage: number;
+ maxCharsPerAssistantMessage: number;
 }
 
 export interface AutoReviewConfig {

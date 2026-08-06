@@ -24,6 +24,23 @@ function stringifyMessageContent(content: unknown): string | null {
   return null;
 }
 
+// Assistant turns can contain thinking and tool-call blocks alongside visible
+// text. Include only Pi's explicit text blocks; never serialize other blocks.
+function stringifyAssistantTextContent(content: unknown): string | null {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const parts = content.flatMap((part) => {
+    const record = toRecord(part);
+    return record.type === "text" && typeof record.text === "string" ? [record.text] : [];
+  });
+  return parts.length ? parts.join("\n") : null;
+}
+
 function extractRoleAndData(entry: unknown): { role: string; data: unknown } | null {
   const record = toRecord(entry);
   const message = toRecord(record.message);
@@ -53,21 +70,18 @@ function truncateToTailLines(text: string, maxLines: number): string {
   return lines.length <= maxLines ? text : lines.slice(-maxLines).join("\n");
 }
 
-// Cheap token approximation: whitespace-delimited words. Keeps the last
-// `maxTokens` tokens of an assistant response, where the final decisions and
-// tool calls are most relevant for authorization review.
-function truncateToLastTokens(text: string, maxTokens: number): string {
-  if (maxTokens <= 0) {
+function truncateToFirstCharacters(text: string, maxCharacters: number): string {
+  if (maxCharacters <= 0) {
     return "";
   }
-  const tokens = text.trim().split(/\s+/).filter(Boolean);
-  return tokens.length <= maxTokens ? text.trim() : tokens.slice(-maxTokens).join(" ");
+  return Array.from(text).slice(0, maxCharacters).join("");
 }
 
 function collectTailByRole(
   entries: unknown[],
   rolePredicate: (role: string) => boolean,
   count: number,
+  stringifyContent = stringifyMessageContent,
 ): { role: string; text: string }[] {
   if (count <= 0) {
     return [];
@@ -78,7 +92,7 @@ function collectTailByRole(
     if (!extracted || !rolePredicate(extracted.role)) {
       continue;
     }
-    const text = stringifyMessageContent(extracted.data);
+    const text = stringifyContent(extracted.data);
     if (!text || !text.trim()) {
       continue;
     }
@@ -103,8 +117,13 @@ function buildTranscriptBlock(entries: unknown[], tc: TranscriptContextConfig): 
   const userMessages = collectTailByRole(entries, isUserRole, tc.tailUserMessages)
     .map((entry) => truncateToTailLines(entry.text, tc.maxLinesPerUserMessage).trim())
     .filter(Boolean);
-  const assistantMessages = collectTailByRole(entries, isAssistantRole, tc.tailAssistantMessages)
-    .map((entry) => truncateToLastTokens(entry.text, tc.maxTokensPerAssistantMessage).trim())
+  const assistantMessages = collectTailByRole(
+    entries,
+    isAssistantRole,
+    tc.tailAssistantMessages,
+    stringifyAssistantTextContent,
+  )
+    .map((entry) => truncateToFirstCharacters(entry.text, tc.maxCharsPerAssistantMessage).trim())
     .filter(Boolean);
 
   const sections: string[] = [];
