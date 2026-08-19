@@ -8,22 +8,22 @@ It uses an AI classifier to approve low-risk tool calls. Risky, denied, failed, 
 
 ## Installation
 
-Install from GitHub:
+Install from npm (recommended):
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-approval
+pi install npm:pi-auto-approval
 ```
 
 Install a pinned release:
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-approval@v0.1.0
+pi install npm:pi-auto-approval@0.1.0
 ```
 
 Install only for the current project:
 
 ```bash
-pi install -l https://github.com/Europa2061/pi-auto-approval
+pi install -l npm:pi-auto-approval
 ```
 
 Reload Pi and enable the recommended mode:
@@ -31,6 +31,34 @@ Reload Pi and enable the recommended mode:
 ```text
 /reload
 /auto-approval fallback
+```
+
+### Migrate from a GitHub installation
+
+Pi treats GitHub and npm sources as different packages. Remove the GitHub installation before using the npm package so the extension is not loaded twice.
+
+Before removing it, run `/auto-approval status` and back up the displayed `config.jsonc` if you want to keep custom settings. The default config path is inside the installed package and does not move automatically between package sources.
+
+For a user installation:
+
+```bash
+pi remove https://github.com/Europa2061/pi-auto-approval
+pi install npm:pi-auto-approval
+```
+
+For a project-local installation:
+
+```bash
+pi remove -l https://github.com/Europa2061/pi-auto-approval
+pi install -l npm:pi-auto-approval
+```
+
+Start Pi again, restore the config to the new path shown by `/auto-approval status` if needed, then run `/reload`. The unpinned remove command also matches an installation pinned to a Git tag such as `@v0.1.0`.
+
+GitHub installation remains available as an alternative:
+
+```bash
+pi install https://github.com/Europa2061/pi-auto-approval
 ```
 
 ## Commands

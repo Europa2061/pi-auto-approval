@@ -8,22 +8,22 @@ pi-auto-approval 是一个为 Pi 开发的自动审批扩展，参考了 Claude 
 
 ## 安装
 
-从 GitHub 安装：
+推荐从 npm 安装：
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-approval
+pi install npm:pi-auto-approval
 ```
 
 安装固定版本：
 
 ```bash
-pi install https://github.com/Europa2061/pi-auto-approval@v0.1.0
+pi install npm:pi-auto-approval@0.1.0
 ```
 
 只安装到当前项目：
 
 ```bash
-pi install -l https://github.com/Europa2061/pi-auto-approval
+pi install -l npm:pi-auto-approval
 ```
 
 重新加载 Pi 并启用推荐模式：
@@ -31,6 +31,34 @@ pi install -l https://github.com/Europa2061/pi-auto-approval
 ```text
 /reload
 /auto-approval fallback
+```
+
+### 从 GitHub 安装迁移到 npm
+
+Pi 会把 GitHub 和 npm 来源视为两个不同的包。使用 npm 包前，请先移除 GitHub 安装，避免扩展被重复加载。
+
+如果需要保留自定义配置，请先运行 `/auto-approval status`，备份其中显示的 `config.jsonc`。默认配置文件位于扩展安装目录内，更换安装来源时不会自动迁移。
+
+用户级安装迁移：
+
+```bash
+pi remove https://github.com/Europa2061/pi-auto-approval
+pi install npm:pi-auto-approval
+```
+
+当前项目安装迁移：
+
+```bash
+pi remove -l https://github.com/Europa2061/pi-auto-approval
+pi install -l npm:pi-auto-approval
+```
+
+重新启动 Pi。需要时，将备份配置恢复到 `/auto-approval status` 显示的新路径，然后运行 `/reload`。即使原来安装的是 `@v0.1.0` 这类固定 Git 标签，也可以使用上面不带标签的移除命令。
+
+仍然可以选择从 GitHub 安装：
+
+```bash
+pi install https://github.com/Europa2061/pi-auto-approval
 ```
 
 ## 命令
