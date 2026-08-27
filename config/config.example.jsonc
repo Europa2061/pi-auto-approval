@@ -9,5 +9,20 @@
   "allow": [],
   "deny": [],
   "environment": "",
+  // When enabled, the classifier review prompt replaces the legacy "latest user
+  // request" + retained user/tool tail with a coherent transcript block: the
+  // last `tailUserMessages` user messages (each truncated to its last
+  // `maxLinesPerUserMessage` lines) and the last `tailAssistantMessages`
+  // assistant messages. Only their text blocks are included (thinking and
+  // tool calls are excluded), truncated to the first
+  // `maxCharsPerAssistantMessage` characters. Disabled keeps the original
+  // projection behavior.
+  "transcriptContext": {
+    "enabled": false,
+    "tailUserMessages": 3,
+    "tailAssistantMessages": 3,
+    "maxLinesPerUserMessage": 50,
+    "maxCharsPerAssistantMessage": 800
+  },
   "audit": true
 }

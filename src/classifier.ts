@@ -1,7 +1,9 @@
 import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ReviewSubject } from "./types.js";
 import { buildProjectedContext } from "./context-projection.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { toRecord } from "./common.js";
+import { stableStringify, toRecord } from "./common.js";
+
+export { buildSystemPrompt, buildProjectedContext };
 
 export type ClassifierClient = (
   model: unknown,
@@ -195,7 +197,7 @@ export async function classifyAction(
       systemPrompt: buildSystemPrompt(config),
       messages: [{
         role: "user",
-        content: buildProjectedContext(ctx, subject),
+        content: buildProjectedContext(ctx, config, subject),
         timestamp: Date.now(),
       }],
     }, {
