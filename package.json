@@ -17,9 +17,9 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx tests/run-tests.ts && node --import tsx tests/provider-attribution-telemetry.ts",
+    "test": "node --import tsx tests/run-tests.ts && node --import tsx tests/model-selector-width.ts && node --import tsx tests/provider-attribution-telemetry.ts",
     "smoke:pi": "node --import tsx tests/pi-smoke.ts",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test && npm run smoke:pi"
   },
   "keywords": [
     "pi-package",

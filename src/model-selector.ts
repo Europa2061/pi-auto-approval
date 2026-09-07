@@ -2,7 +2,10 @@ import type { AutoReviewConfig, ExtensionContextLike } from "./types.js";
 
 const ANSI_SGR_PATTERN = /(\x1b\[[0-9;]*m)/g;
 
-/** Column width of a single character (CJK/fullwidth glyphs count as 2). */
+/**
+ * @deprecated Compatibility helper retained for existing tests/consumers.
+ * Production selector rendering uses Pi TUI's own width utilities instead.
+ */
 export function columnWidth(char: string): number {
   const code = char.codePointAt(0) ?? 0;
   return (
@@ -18,7 +21,7 @@ export function columnWidth(char: string): number {
   ) ? 2 : 1;
 }
 
-/** Visible width of a possibly ANSI-styled line, ignoring SGR escape codes. */
+/** @deprecated See columnWidth(). */
 export function visibleWidthOf(line: string): number {
   let width = 0;
   const parts = line.split(ANSI_SGR_PATTERN);
@@ -30,14 +33,7 @@ export function visibleWidthOf(line: string): number {
   return width;
 }
 
-/**
- * Truncate a possibly ANSI-styled line to `maxWidth` visible columns.
- * ANSI SGR escape sequences are preserved but do not count toward the width;
- * CJK/fullwidth characters count as two columns. When the line must be cut,
- * space is reserved for a trailing "..." (omitted when it cannot fit) and an
- * ANSI reset is emitted first so active styling does not leak into the
- * ellipsis or subsequent rows.
- */
+/** @deprecated See columnWidth(). Production rendering does not call this. */
 export function truncateVisible(line: string, maxWidth: number): string {
   if (maxWidth <= 0) {
     return "";
@@ -55,8 +51,6 @@ export function truncateVisible(line: string, maxWidth: number): string {
   let truncated = false;
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
-    // Even indexes are plain text, odd indexes are the ANSI codes captured by
-    // the capturing group in split().
     if (i % 2 === 1) {
       usedAnsi = true;
       result += part;
@@ -97,6 +91,11 @@ type TuiLike = {
   requestRender?: () => void;
 };
 
+type TuiTextUtils = {
+  visibleWidth: (text: string) => number;
+  truncateToWidth: (text: string, maxWidth: number) => string;
+};
+
 type ModelRecord = {
   provider?: string;
   id?: string;
@@ -110,6 +109,77 @@ type ModelItem = {
   name?: string;
   model?: unknown;
 };
+
+const TUI_PACKAGE_CANDIDATES = [
+  "@oh-my-pi/pi-tui",
+  "@earendil-works/pi-tui",
+] as const;
+
+function normalizeRenderWidth(width: number): number {
+  return Number.isFinite(width) ? Math.max(1, Math.trunc(width)) : 1;
+}
+
+function toTuiTextUtils(moduleValue: unknown): TuiTextUtils | null {
+  if (!moduleValue || typeof moduleValue !== "object") {
+    return null;
+  }
+  const record = moduleValue as Record<string, unknown>;
+  if (typeof record.visibleWidth !== "function" || typeof record.truncateToWidth !== "function") {
+    return null;
+  }
+  return {
+    visibleWidth: record.visibleWidth as TuiTextUtils["visibleWidth"],
+    truncateToWidth: record.truncateToWidth as TuiTextUtils["truncateToWidth"],
+  };
+}
+
+function fallbackPlainText(text: string): string {
+  return text.replace(ANSI_SGR_PATTERN, "").replace(/[^\x20-\x7e]/gu, "?");
+}
+
+const safeFallbackTextUtils: TuiTextUtils = {
+  visibleWidth(text: string): number {
+    const withoutSgr = text.replace(ANSI_SGR_PATTERN, "");
+    return /^[\x20-\x7e]*$/.test(withoutSgr) ? withoutSgr.length : Number.POSITIVE_INFINITY;
+  },
+  truncateToWidth(text: string, maxWidth: number): string {
+    const width = Math.max(0, Math.trunc(maxWidth));
+    if (width === 0) return "";
+    const plain = fallbackPlainText(text);
+    const ellipsis = width >= 4 ? "..." : "";
+    const budget = Math.max(0, width - ellipsis.length);
+    return `${plain.slice(0, budget)}${ellipsis}`.slice(0, width);
+  },
+};
+
+async function loadTuiTextUtils(): Promise<TuiTextUtils> {
+  const loaded: TuiTextUtils[] = [];
+  for (const packageName of TUI_PACKAGE_CANDIDATES) {
+    try {
+      const moduleValue = await import(packageName);
+      const textUtils = toTuiTextUtils(moduleValue);
+      if (textUtils) {
+        loaded.push(textUtils);
+      }
+    } catch {
+      // The extension supports both Pi package scopes; normally only the
+      // active runtime's TUI package is resolvable.
+    }
+  }
+
+  // Use Pi's exact width engine when it is unambiguous. Otherwise preserve the
+  // custom selector with an ASCII-only fallback that cannot underestimate
+  // terminal width: non-ASCII/control content is converted to printable ASCII
+  // before truncation instead of guessing Unicode cell widths.
+  return loaded.length === 1 ? loaded[0] : safeFallbackTextUtils;
+}
+
+function fitLineToWidth(line: string, width: number, textUtils: TuiTextUtils): string {
+  const maxWidth = normalizeRenderWidth(width);
+  return textUtils.visibleWidth(line) <= maxWidth
+    ? line
+    : textUtils.truncateToWidth(line, maxWidth);
+}
 
 function style(theme: ThemeLike, name: string, text: string): string {
   return theme.fg?.(name, text) ?? text;
@@ -200,6 +270,7 @@ function createSelectorComponent(
   config: AutoReviewConfig,
   theme: ThemeLike,
   keybindings: KeybindingsLike,
+  textUtils: TuiTextUtils,
   done: (value: string | null | undefined) => void,
 ) {
   const currentRef = selectedModelRef(config, ctx.model);
@@ -274,16 +345,14 @@ function createSelectorComponent(
       focused = value;
     },
     render(width: number) {
+      const safeWidth = normalizeRenderWidth(width);
       const lines = renderLines();
-      const border = style(theme, "border", "─".repeat(Math.max(1, width)));
+      const border = style(theme, "border", "─".repeat(safeWidth));
       return lines.map((line, index) => {
-        // Truncate every non-border line to the available width so long model
-        // names or messages can never overflow the terminal (pi crashes with
-        // "Rendered line exceeds terminal width" otherwise).
         if (index === 0 || index === lines.length - 1) {
           return border;
         }
-        return truncateVisible(line, Math.max(1, width));
+        return fitLineToWidth(line, safeWidth, textUtils);
       });
     },
     invalidate() {},
@@ -319,19 +388,28 @@ function createSelectorComponent(
   };
 }
 
+async function selectClassifierModelWithTextUtils(
+  ctx: ExtensionContextLike,
+  config: AutoReviewConfig,
+  textUtils: TuiTextUtils,
+): Promise<string | null | undefined> {
+  const items = await loadModelItems(ctx, config);
+  return ctx.ui?.custom?.<string | null | undefined>((tui: TuiLike, theme: ThemeLike, keybindings: KeybindingsLike, done: (value: string | null | undefined) => void) => (
+    createSelectorComponent(tui, items, ctx, config, theme, keybindings, textUtils, (value) => {
+      done(value);
+      tui.requestRender?.();
+    })
+  ));
+}
+
 export async function selectClassifierModel(ctx: ExtensionContextLike, config: AutoReviewConfig): Promise<string | null | undefined> {
   if (ctx.mode !== undefined && ctx.mode !== "tui") {
     return selectClassifierModelFallback(ctx, config);
   }
 
   if (ctx.ui?.custom) {
-    const items = await loadModelItems(ctx, config);
-    return ctx.ui.custom<string | null | undefined>((tui: TuiLike, theme: ThemeLike, keybindings: KeybindingsLike, done: (value: string | null | undefined) => void) => (
-      createSelectorComponent(tui, items, ctx, config, theme, keybindings, (value) => {
-        done(value);
-        tui.requestRender?.();
-      })
-    ));
+    const textUtils = await loadTuiTextUtils();
+    return selectClassifierModelWithTextUtils(ctx, config, textUtils);
   }
 
   return selectClassifierModelFallback(ctx, config);
@@ -367,4 +445,9 @@ export const modelSelectorInternals = {
   truncateVisible,
   visibleWidthOf,
   columnWidth,
+  fitLineToWidth,
+  createSelectorComponent,
+  selectClassifierModelWithTextUtils,
+  loadTuiTextUtils,
+  safeFallbackTextUtils,
 };
