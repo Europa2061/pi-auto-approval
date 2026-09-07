@@ -1,5 +1,89 @@
 import type { AutoReviewConfig, ExtensionContextLike } from "./types.js";
 
+const ANSI_SGR_PATTERN = /(\x1b\[[0-9;]*m)/g;
+
+/** Column width of a single character (CJK/fullwidth glyphs count as 2). */
+export function columnWidth(char: string): number {
+  const code = char.codePointAt(0) ?? 0;
+  return (
+    (code >= 0x1100 && code <= 0x115f)
+    || (code >= 0x2e80 && code <= 0xa4cf)
+    || (code >= 0xac00 && code <= 0xd7a3)
+    || (code >= 0xf900 && code <= 0xfaff)
+    || (code >= 0xfe30 && code <= 0xfe4f)
+    || (code >= 0xff00 && code <= 0xff60)
+    || (code >= 0xffe0 && code <= 0xffe6)
+    || (code >= 0x20000 && code <= 0x2fffd)
+    || (code >= 0x30000 && code <= 0x3fffd)
+  ) ? 2 : 1;
+}
+
+/** Visible width of a possibly ANSI-styled line, ignoring SGR escape codes. */
+export function visibleWidthOf(line: string): number {
+  let width = 0;
+  const parts = line.split(ANSI_SGR_PATTERN);
+  for (let i = 0; i < parts.length; i += 2) {
+    for (const char of parts[i]) {
+      width += columnWidth(char);
+    }
+  }
+  return width;
+}
+
+/**
+ * Truncate a possibly ANSI-styled line to `maxWidth` visible columns.
+ * ANSI SGR escape sequences are preserved but do not count toward the width;
+ * CJK/fullwidth characters count as two columns. When the line must be cut,
+ * space is reserved for a trailing "..." (omitted when it cannot fit) and an
+ * ANSI reset is emitted first so active styling does not leak into the
+ * ellipsis or subsequent rows.
+ */
+export function truncateVisible(line: string, maxWidth: number): string {
+  if (maxWidth <= 0) {
+    return "";
+  }
+  if (visibleWidthOf(line) <= maxWidth) {
+    return line;
+  }
+  const ellipsis = "...";
+  const ellipsisWidth = 3;
+  const textBudget = ellipsisWidth < maxWidth ? maxWidth - ellipsisWidth : maxWidth;
+  const parts = line.split(ANSI_SGR_PATTERN);
+  let result = "";
+  let visible = 0;
+  let usedAnsi = false;
+  let truncated = false;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    // Even indexes are plain text, odd indexes are the ANSI codes captured by
+    // the capturing group in split().
+    if (i % 2 === 1) {
+      usedAnsi = true;
+      result += part;
+      continue;
+    }
+    for (const char of part) {
+      const width = columnWidth(char);
+      if (visible + width > textBudget) {
+        truncated = true;
+        break;
+      }
+      result += char;
+      visible += width;
+    }
+    if (truncated) {
+      break;
+    }
+  }
+  if (!truncated) {
+    return result;
+  }
+  if (ellipsisWidth < maxWidth) {
+    return usedAnsi ? `${result}\x1b[0m${ellipsis}` : `${result}${ellipsis}`;
+  }
+  return usedAnsi ? `${result}\x1b[0m` : result;
+}
+
 type ThemeLike = {
   fg?: (name: string, text: string) => string;
   bold?: (text: string) => string;
@@ -140,7 +224,7 @@ function createSelectorComponent(
     }
   };
 
-  const render = (): string[] => {
+  const renderLines = (): string[] => {
     const lines: string[] = [];
     lines.push(style(theme, "border", "─".repeat(1)));
     lines.push("");
@@ -190,7 +274,17 @@ function createSelectorComponent(
       focused = value;
     },
     render(width: number) {
-      return render().map((line) => (line === style(theme, "border", "─".repeat(1)) ? style(theme, "border", "─".repeat(Math.max(1, width))) : line));
+      const lines = renderLines();
+      const border = style(theme, "border", "─".repeat(Math.max(1, width)));
+      return lines.map((line, index) => {
+        // Truncate every non-border line to the available width so long model
+        // names or messages can never overflow the terminal (pi crashes with
+        // "Rendered line exceeds terminal width" otherwise).
+        if (index === 0 || index === lines.length - 1) {
+          return border;
+        }
+        return truncateVisible(line, Math.max(1, width));
+      });
     },
     invalidate() {},
     handleInput(data: string) {
@@ -270,4 +364,7 @@ export const modelSelectorInternals = {
   modelLabel,
   normalizeModel,
   sortModels,
+  truncateVisible,
+  visibleWidthOf,
+  columnWidth,
 };
