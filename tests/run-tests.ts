@@ -9,6 +9,7 @@ import { configPath, DEFAULT_CONFIG, loadConfig, logsDir, normalizeConfig } from
 import { evaluateToolCall } from "../src/decision.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
+import { getProviderAttributionHeaders } from "../src/provider-attribution.js";
 import type { AutoReviewConfig, ExtensionContextLike } from "../src/types.js";
 
 function test(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -655,6 +656,95 @@ async function run(): Promise<void> {
     assert.deepEqual(capturedOptions?.headers, { "X-Custom-Header": "yes" });
     assert.deepEqual(capturedOptions?.env, { PROXY_REGION: "eu" });
     assert.equal((capturedModel as { provider?: string }).provider, "my-proxy");
+  });
+
+  await test("getProviderAttributionHeaders mirrors pi core provider matching", () => {
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "openrouter", baseUrl: "https://openrouter.ai/api/v1" }), {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+    // Custom provider pointed at the OpenRouter host is attributed too.
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://openrouter.ai/api/v1" }), {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "nvidia", baseUrl: "https://integrate.api.nvidia.com/v1" }), {
+      "X-BILLING-INVOKE-ORIGIN": "Pi",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://integrate.api.nvidia.com/v1" }), {
+      "X-BILLING-INVOKE-ORIGIN": "Pi",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "cloudflare-workers-ai", baseUrl: "https://api.cloudflare.com" }), {
+      "User-Agent": "pi-coding-agent",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://gateway.ai.cloudflare.com/v1" }), {
+      "User-Agent": "pi-coding-agent",
+    });
+    assert.equal(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://my-proxy.example/v1" }), undefined);
+    assert.equal(getProviderAttributionHeaders({ id: "test", api: "test" }), undefined);
+    assert.equal(getProviderAttributionHeaders(undefined), undefined);
+  });
+
+  await test("classifier injects pi provider attribution headers for OpenRouter models", async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    const decision = await classifyAction(
+      ctx({
+        modelRegistry: {
+          find: (provider, id) => ({
+            id,
+            api: "openai-completions",
+            provider,
+            baseUrl: "https://openrouter.ai/api/v1",
+          }),
+          getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "openrouter-key" }),
+        },
+      }),
+      config({ classifierModel: "openrouter/some-model" }),
+      { toolName: "bash", input: { command: "pwd" }, cwd: "/tmp", actionSummary: "bash: pwd", actionHash: "x" },
+      async (_model, _context, options) => {
+        capturedOptions = options as Record<string, unknown>;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.equal(decision.outcome, "allow");
+    assert.deepEqual(capturedOptions?.headers, {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+  });
+
+  await test("classifier attribution headers merge under registry headers", async () => {
+    // Registry-provided headers must win on conflict, matching pi core's
+    // merge order where header sources override the attribution defaults.
+    let capturedOptions: Record<string, unknown> | undefined;
+    const decision = await classifyAction(
+      ctx({
+        modelRegistry: {
+          find: (provider, id) => ({
+            id,
+            api: "openai-completions",
+            provider,
+            baseUrl: "https://gateway.ai.cloudflare.com/v1",
+          }),
+          getApiKeyAndHeaders: async () => ({
+            ok: true,
+            apiKey: "cf-key",
+            headers: { "User-Agent": "custom-agent", "X-Extra": "1" },
+          }),
+        },
+      }),
+      config({ classifierModel: "my-cf/some-model" }),
+      { toolName: "bash", input: { command: "pwd" }, cwd: "/tmp", actionSummary: "bash: pwd", actionHash: "x" },
+      async (_model, _context, options) => {
+        capturedOptions = options as Record<string, unknown>;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.equal(decision.outcome, "allow");
+    assert.deepEqual(capturedOptions?.headers, { "User-Agent": "custom-agent", "X-Extra": "1" });
   });
 
   await test("classifier surfaces auth resolution failure as deny reason", async () => {
