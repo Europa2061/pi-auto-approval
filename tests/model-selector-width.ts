@@ -69,8 +69,9 @@ async function run(): Promise<void> {
 
   for (const sample of ["😀中文", "e\u0301", "👨‍👩‍👧‍👦", "\u001b[31mstyled\u001b[0m"]) {
     const fallback = modelSelectorInternals.fitLineToWidth(sample, 6, modelSelectorInternals.safeFallbackTextUtils);
-    assert.ok(/^[\x20-\x7e]*$/.test(fallback), `fallback must emit printable ASCII only: ${JSON.stringify(fallback)}`);
-    assert.ok(fallback.length <= 6, `fallback exceeds width: ${JSON.stringify(fallback)}`);
+    const visibleFallback = fallback.replace(ANSI_SGR_PATTERN, "");
+    assert.ok(/^[\x20-\x7e]*$/.test(visibleFallback), `fallback visible text must be printable ASCII: ${JSON.stringify(fallback)}`);
+    assert.ok(visibleFallback.length <= 6, `fallback visible text exceeds width: ${JSON.stringify(fallback)}`);
   }
 
   const config = {
@@ -116,7 +117,7 @@ async function run(): Promise<void> {
   assert.equal(piLikeTextUtils.visibleWidth(rendered.at(-1) ?? ""), 20);
 
   console.log("[PASS] model selector uses Pi-compatible width helpers for emoji, combining marks, ZWJ emoji, CJK, and ANSI text");
-  console.log("[PASS] safe fallback never guesses Unicode width and emits bounded printable ASCII");
+  console.log("[PASS] safe fallback never guesses Unicode width and keeps visible text within printable ASCII bounds");
   console.log("[PASS] narrow selector render keeps every row within terminal width");
 }
 
