@@ -133,7 +133,26 @@ function toTuiTextUtils(moduleValue: unknown): TuiTextUtils | null {
   };
 }
 
-async function loadTuiTextUtils(): Promise<TuiTextUtils | null> {
+function fallbackPlainText(text: string): string {
+  return text.replace(ANSI_SGR_PATTERN, "").replace(/[^\x20-\x7e]/gu, "?");
+}
+
+const safeFallbackTextUtils: TuiTextUtils = {
+  visibleWidth(text: string): number {
+    const withoutSgr = text.replace(ANSI_SGR_PATTERN, "");
+    return /^[\x20-\x7e]*$/.test(withoutSgr) ? withoutSgr.length : Number.POSITIVE_INFINITY;
+  },
+  truncateToWidth(text: string, maxWidth: number): string {
+    const width = Math.max(0, Math.trunc(maxWidth));
+    if (width === 0) return "";
+    const plain = fallbackPlainText(text);
+    const ellipsis = width >= 4 ? "..." : "";
+    const budget = Math.max(0, width - ellipsis.length);
+    return `${plain.slice(0, budget)}${ellipsis}`.slice(0, width);
+  },
+};
+
+async function loadTuiTextUtils(): Promise<TuiTextUtils> {
   const loaded: TuiTextUtils[] = [];
   for (const packageName of TUI_PACKAGE_CANDIDATES) {
     try {
@@ -148,10 +167,11 @@ async function loadTuiTextUtils(): Promise<TuiTextUtils | null> {
     }
   }
 
-  // Never guess which width engine is active if both or neither resolve.
-  // Falling back to Pi's built-in select UI is safer than rendering with a
-  // mismatched width implementation and risking a terminal-width crash.
-  return loaded.length === 1 ? loaded[0] : null;
+  // Use Pi's exact width engine when it is unambiguous. Otherwise preserve the
+  // custom selector with an ASCII-only fallback that cannot underestimate
+  // terminal width: non-ASCII/control content is converted to printable ASCII
+  // before truncation instead of guessing Unicode cell widths.
+  return loaded.length === 1 ? loaded[0] : safeFallbackTextUtils;
 }
 
 function fitLineToWidth(line: string, width: number, textUtils: TuiTextUtils): string {
@@ -389,9 +409,7 @@ export async function selectClassifierModel(ctx: ExtensionContextLike, config: A
 
   if (ctx.ui?.custom) {
     const textUtils = await loadTuiTextUtils();
-    if (textUtils) {
-      return selectClassifierModelWithTextUtils(ctx, config, textUtils);
-    }
+    return selectClassifierModelWithTextUtils(ctx, config, textUtils);
   }
 
   return selectClassifierModelFallback(ctx, config);
@@ -431,4 +449,5 @@ export const modelSelectorInternals = {
   createSelectorComponent,
   selectClassifierModelWithTextUtils,
   loadTuiTextUtils,
+  safeFallbackTextUtils,
 };

@@ -67,6 +67,12 @@ async function run(): Promise<void> {
   assertFits("\u001b[31m😀中文abcdef\u001b[0m", 8);
   assert.ok(truncateCalls >= 5, "Pi truncateToWidth-compatible helper should be used for overflowing lines");
 
+  for (const sample of ["😀中文", "e\u0301", "👨‍👩‍👧‍👦", "\u001b[31mstyled\u001b[0m"]) {
+    const fallback = modelSelectorInternals.fitLineToWidth(sample, 6, modelSelectorInternals.safeFallbackTextUtils);
+    assert.ok(/^[\x20-\x7e]*$/.test(fallback), `fallback must emit printable ASCII only: ${JSON.stringify(fallback)}`);
+    assert.ok(fallback.length <= 6, `fallback exceeds width: ${JSON.stringify(fallback)}`);
+  }
+
   const config = {
     classifierModel: null,
   } as AutoReviewConfig;
@@ -110,6 +116,7 @@ async function run(): Promise<void> {
   assert.equal(piLikeTextUtils.visibleWidth(rendered.at(-1) ?? ""), 20);
 
   console.log("[PASS] model selector uses Pi-compatible width helpers for emoji, combining marks, ZWJ emoji, CJK, and ANSI text");
+  console.log("[PASS] safe fallback never guesses Unicode width and emits bounded printable ASCII");
   console.log("[PASS] narrow selector render keeps every row within terminal width");
 }
 
