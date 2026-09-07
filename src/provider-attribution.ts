@@ -1,21 +1,75 @@
 import { toRecord } from "./common.js";
 
-/**
- * Provider attribution headers that pi core injects into every model request
- * (see pi-coding-agent's provider-attribution module). The approval
- * classifier calls `completeSimple` directly, bypassing that merge, so
- * without this the classifier requests are the only pi traffic arriving at
- * OpenRouter / NVIDIA NIM / Cloudflare without pi's attribution headers.
- *
- * Mirrors pi core's host/provider matching exactly so the classifier stays
- * consistent with pi's normal model calls for both built-in providers and
- * custom providers pointed at the same hosts.
- */
-
 const OPENROUTER_HOST = "openrouter.ai";
 const NVIDIA_NIM_HOST = "integrate.api.nvidia.com";
 const CLOUDFLARE_API_HOST = "api.cloudflare.com";
 const CLOUDFLARE_AI_GATEWAY_HOST = "gateway.ai.cloudflare.com";
+const EARENDIL_CODING_AGENT = "@earendil-works/pi-coding-agent";
+
+export interface InstallTelemetrySettingsLike {
+  getEnableInstallTelemetry: () => boolean;
+}
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  if (!value) return false;
+  return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
+}
+
+/** Mirrors Pi's current telemetry precedence: PI_TELEMETRY overrides settings.json. */
+export function isInstallTelemetryEnabled(
+  settingsManager: InstallTelemetrySettingsLike,
+  telemetryEnv: string | undefined,
+): boolean {
+  return telemetryEnv !== undefined ? isTruthyEnvFlag(telemetryEnv) : settingsManager.getEnableInstallTelemetry();
+}
+
+/**
+ * Resolve whether Pi provider attribution is enabled for the active runtime.
+ *
+ * Earendil Pi exposes SettingsManager publicly, so use it to read the same
+ * global/project settings Pi uses. The telemetry helper itself is not exported,
+ * so the small env-precedence rule above mirrors current upstream semantics.
+ * For OMP/older runtimes, preserve the existing behavior unless PI_TELEMETRY
+ * is explicitly set.
+ */
+export async function isProviderAttributionEnabled(
+  cwd: string | undefined,
+  codingAgentPackage: string | undefined,
+  telemetryEnv: string | undefined = process.env.PI_TELEMETRY,
+): Promise<boolean> {
+  if (telemetryEnv !== undefined) {
+    return isTruthyEnvFlag(telemetryEnv);
+  }
+  if (codingAgentPackage !== EARENDIL_CODING_AGENT) {
+    return true;
+  }
+
+  try {
+    // Keep this dynamic so the optional peer dependency remains optional.
+    const packageName = codingAgentPackage;
+    const mod = await import(packageName);
+    const settingsManagerClass = mod.SettingsManager as { create?: (cwd: string) => unknown } | undefined;
+    if (typeof settingsManagerClass?.create !== "function") {
+      return true;
+    }
+    const settingsManager = settingsManagerClass.create(cwd ?? process.cwd());
+    const record = toRecord(settingsManager);
+    const getter = record.getEnableInstallTelemetry;
+    if (typeof getter !== "function") {
+      return true;
+    }
+    return isInstallTelemetryEnabled({
+      getEnableInstallTelemetry: () => {
+        const enabled = getter.call(settingsManager);
+        return typeof enabled === "boolean" ? enabled : true;
+      },
+    }, telemetryEnv);
+  } catch {
+    // Preserve compatibility with older/alternate runtimes if the public
+    // SettingsManager API is unavailable.
+    return true;
+  }
+}
 
 function matchesHost(baseUrl: string, expectedHost: string): boolean {
   if (!baseUrl) {

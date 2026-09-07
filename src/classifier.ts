@@ -1,7 +1,7 @@
 import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ReviewSubject } from "./types.js";
 import { buildProjectedContext } from "./context-projection.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { getProviderAttributionHeaders } from "./provider-attribution.js";
+import { getProviderAttributionHeaders, isProviderAttributionEnabled } from "./provider-attribution.js";
 import { toRecord } from "./common.js";
 
 export type ClassifierClient = (
@@ -10,16 +10,25 @@ export type ClassifierClient = (
   options: Record<string, unknown>,
 ) => Promise<unknown>;
 
-async function loadCompleteSimple(): Promise<ClassifierClient> {
+interface LoadedClassifierClient {
+  client: ClassifierClient;
+  codingAgentPackage: string;
+}
+
+async function loadCompleteSimple(): Promise<LoadedClassifierClient> {
   const candidates = [
-    "@oh-my-pi/pi-ai",
-    "@earendil-works/pi-ai",
+    { aiPackage: "@oh-my-pi/pi-ai", codingAgentPackage: "@oh-my-pi/pi-coding-agent" },
+    { aiPackage: "@earendil-works/pi-ai", codingAgentPackage: "@earendil-works/pi-coding-agent" },
   ];
-  for (const packageName of candidates) {
+  for (const candidate of candidates) {
     try {
+      const packageName = candidate.aiPackage;
       const mod = await import(packageName);
       if (typeof mod.completeSimple === "function") {
-        return mod.completeSimple as ClassifierClient;
+        return {
+          client: mod.completeSimple as ClassifierClient,
+          codingAgentPackage: candidate.codingAgentPackage,
+        };
       }
     } catch {
       // try next scope
@@ -158,9 +167,6 @@ async function resolveRequestAuth(
       : "auth resolution reported failure with no error message";
     throw new Error(`Could not resolve classifier model auth: ${error}`);
   }
-  // Only carry defined fields so providers that test `options.apiKey !==
-  // undefined` (or iterate option keys) are not handed explicit `undefined`
-  // values for an anonymous/local provider that resolved ok:true with no key.
   const auth: { apiKey?: string; headers?: Record<string, string>; env?: Record<string, string> } = {};
   if (typeof record.apiKey === "string") {
     auth.apiKey = record.apiKey;
@@ -180,23 +186,25 @@ export async function classifyAction(
   subject: ReviewSubject,
   client?: ClassifierClient,
 ): Promise<ReviewDecision> {
-  const completeSimple = client ?? await loadCompleteSimple();
+  let completeSimple = client;
+  let codingAgentPackage: string | undefined;
+  if (!completeSimple) {
+    const loaded = await loadCompleteSimple();
+    completeSimple = loaded.client;
+    codingAgentPackage = loaded.codingAgentPackage;
+  }
+
   const model = resolveClassifierModel(ctx, config);
   if (!model) {
     throw new Error("No active model is available for auto approval.");
   }
 
-  // Inject request auth resolved through ModelRegistry so custom/OAuth
-  // providers whose credentials live in models.json or auth storage are
-  // authenticated, just like pi's normal model calls. See resolveRequestAuth.
   const auth = await resolveRequestAuth(ctx, model);
 
-  // Merge pi's provider attribution headers (OpenRouter HTTP-Referer /
-  // X-OpenRouter-Title, NVIDIA billing origin, Cloudflare User-Agent) under
-  // any registry-provided headers, so classifier requests carry the same
-  // attribution as pi's normal model calls. Registry headers win on
-  // conflict, matching pi core's merge order.
-  const headers = { ...getProviderAttributionHeaders(model), ...auth.headers };
+  const attributionHeaders = await isProviderAttributionEnabled(ctx.cwd, codingAgentPackage)
+    ? getProviderAttributionHeaders(model)
+    : undefined;
+  const headers = { ...attributionHeaders, ...auth.headers };
   if (Object.keys(headers).length > 0) {
     auth.headers = headers;
   }
@@ -218,13 +226,6 @@ export async function classifyAction(
 
   const responseText = extractAssistantText(response);
   if (!responseText) {
-    // The provider may return a content-empty assistant message when the
-    // underlying request failed (HTTP 403, auth errors, model setup failures,
-    // etc.). pi-ai's lazyStream surfaces such setup failures as an error event
-    // with `content: []` plus an `errorMessage` field, which collapses to an
-    // empty string here. Surface that upstream errorMessage instead of the
-    // generic "Classifier returned no text." so the deny reason points at the
-    // real cause rather than masking it.
     const responseRecord = toRecord(response);
     const upstreamError = typeof responseRecord.errorMessage === "string"
       ? responseRecord.errorMessage.trim()
