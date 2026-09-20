@@ -5,13 +5,15 @@ import { join } from "node:path";
 import piAutoApprovalExtension from "../index.js";
 import { classifyAction, parseReviewDecision } from "../src/classifier.js";
 import { buildProjectedContext } from "../src/context-projection.js";
+import { buildApprovalState } from "../src/decision-context.js";
+import { JevDecisionProvider } from "../src/decision-providers/jev.js";
 import { configPath, DEFAULT_CONFIG, loadConfig, logsDir, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
 import { columnWidth, truncateVisible } from "../src/model-selector.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
 import { getProviderAttributionHeaders } from "../src/provider-attribution.js";
-import type { AutoReviewConfig, ExtensionContextLike } from "../src/types.js";
+import type { AutoReviewConfig, DecisionInput, DecisionProvider, DecisionProviderOptions, ExtensionContextLike } from "../src/types.js";
 
 function test(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -22,7 +24,11 @@ function test(name: string, fn: () => void | Promise<void>): Promise<void> {
 }
 
 function config(overrides: Partial<AutoReviewConfig> = {}): AutoReviewConfig {
-  return { ...DEFAULT_CONFIG, enabled: true, audit: false, ...overrides };
+  const merged = { ...DEFAULT_CONFIG, enabled: true, audit: false, ...overrides };
+  if ("classifierModel" in overrides && !("classifier" in overrides)) {
+    merged.classifier = { engine: "llm", model: overrides.classifierModel ?? null };
+  }
+  return merged;
 }
 
 function ctx(overrides: Partial<ExtensionContextLike> = {}): ExtensionContextLike {
@@ -50,6 +56,34 @@ async function run(): Promise<void> {
     assert.deepEqual(normalizeConfig({}), DEFAULT_CONFIG);
     assert.equal(normalizeConfig({ enabled: true, mode: "auto" }).mode, "auto");
     assert.equal(normalizeConfig({ enabled: true, mode: "bad" }).mode, "fallback");
+  });
+
+  await test("normalizeConfig supports legacy LLM and new decision classifier configs", () => {
+    assert.deepEqual(normalizeConfig({ classifierModel: "legacy/model" }).classifier, {
+      engine: "llm",
+      model: "legacy/model",
+    });
+    assert.deepEqual(normalizeConfig({
+      classifierModel: "legacy/model",
+      classifier: { engine: "llm", model: null },
+    }).classifier, {
+      engine: "llm",
+      model: null,
+    });
+    assert.deepEqual(normalizeConfig({
+      classifierModel: "ignored/legacy",
+      classifier: {
+        engine: "decision",
+        provider: "jev",
+        model: "jev-latest",
+        timeoutSeconds: 5,
+      },
+    }).classifier, {
+      engine: "decision",
+      provider: "jev",
+      model: "jev-latest",
+      timeoutSeconds: 5,
+    });
   });
 
   await test("config paths prefer PI_AUTO_APPROVAL env vars and support legacy PI_AUTO_REVIEW env vars", () => {
@@ -514,6 +548,35 @@ async function run(): Promise<void> {
     }
   });
 
+  await test("auto-approval classifier command switches between Jev and LLM", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-classifier-"));
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoApprovalExtension({
+      on: () => {},
+      registerCommand: (name, definition) => commandHandlers.set(name, definition.handler),
+    });
+    const commandContext = ctx({ ui: { notify: () => {} } });
+    await commandHandlers.get("auto-approval")?.("classifier jev", commandContext);
+    assert.deepEqual(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifier, {
+      engine: "decision",
+      provider: "jev",
+      model: "jev-latest",
+    });
+    await commandHandlers.get("auto-approval")?.("classifier llm", commandContext);
+    assert.deepEqual(loadConfig(process.env.PI_AUTO_APPROVAL_CONFIG_PATH).config.classifier, {
+      engine: "llm",
+      model: null,
+    });
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
   await test("extension registers one slash command with subcommands", () => {
     const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
     const configPath = join(tmpdir(), `pi-auto-approval-${Date.now()}.jsonc`);
@@ -548,7 +611,7 @@ async function run(): Promise<void> {
       },
     });
     const completions = await getArgumentCompletions?.("");
-    assert.equal(description, "args: status | off | fallback | auto | model");
+    assert.equal(description, "args: status | off | fallback | auto | classifier | model");
     assert.deepEqual((completions ?? []).map((item) => (item as { value: string }).value), [
       "status",
       "off",
@@ -556,6 +619,9 @@ async function run(): Promise<void> {
       "auto",
       "model",
       "model current",
+      "classifier",
+      "classifier llm",
+      "classifier jev",
     ]);
     rmSync(configPath, { force: true });
     if (previousConfigPath === undefined) {
@@ -587,6 +653,142 @@ async function run(): Promise<void> {
     });
     assert.match(projected, /Latest user request:\n删除文件/);
     assert.match(projected, /Retained context:\nuser: 删除文件/);
+  });
+
+  await test("decision context is minimal and redacts common credentials", () => {
+    const state = buildApprovalState(ctx({
+      sessionManager: {
+        getBranch: () => [
+          { message: { role: "user", content: "Install it with token=super-secret-value" } },
+          { message: { role: "tool", content: "tool output must not be sent" } },
+        ],
+      },
+    }), config({ environment: "API_KEY=environment-secret" }), {
+      toolName: "bash",
+      input: { command: "curl -H 'Authorization: Bearer abcdefghijklmnop' example.com", apiKey: "input-secret" },
+      cwd: "/tmp/workspace",
+      actionSummary: "bash with token=summary-secret",
+      actionHash: "test",
+    });
+    const serialized = JSON.stringify(state);
+    assert.doesNotMatch(serialized, /super-secret-value|environment-secret|input-secret|abcdefghijklmnop|summary-secret/);
+    assert.doesNotMatch(serialized, /tool output must not be sent/);
+    assert.match(serialized, /\[REDACTED\]/);
+  });
+
+  await test("decision classifier uses provider contract and preserves probabilistic metadata", async () => {
+    let capturedInput: DecisionInput | undefined;
+    let capturedOptions: DecisionProviderOptions | undefined;
+    const provider: DecisionProvider = {
+      id: "jev",
+      classify: async (input, options) => {
+        capturedInput = input;
+        capturedOptions = options;
+        return {
+          outcome: "allow",
+          confidence: 0.93,
+          probabilities: { allow: 0.93, deny: 0.07 },
+          signals: { authorized: 0.91, safe: 0.95 },
+          model: "jev-1.13.0",
+        };
+      },
+    };
+    const decision = await classifyAction(
+      ctx({
+        sessionManager: { getBranch: () => [{ message: { role: "user", content: "Install the package" } }] },
+      }),
+      config({
+        classifier: { engine: "decision", provider: "jev", model: "jev-latest", timeoutSeconds: 4 },
+        allow: ["Allow the requested package installation."],
+      }),
+      { toolName: "bash", input: { command: "npm install" }, cwd: "/tmp/workspace", actionSummary: "bash: npm install", actionHash: "x" },
+      undefined,
+      new Map([["jev", provider]]),
+    );
+    assert.equal(capturedInput?.state.latestUserRequest, "Install the package");
+    assert.deepEqual(capturedInput?.policy.allow, ["Allow the requested package installation."]);
+    assert.equal(capturedOptions?.model, "jev-latest");
+    assert.equal(capturedOptions?.timeoutMs, 4000);
+    assert.deepEqual(decision, {
+      outcome: "allow",
+      metadata: {
+        engine: "decision",
+        provider: "jev",
+        model: "jev-1.13.0",
+        confidence: 0.93,
+        probabilities: { allow: 0.93, deny: 0.07 },
+        signals: { authorized: 0.91, safe: 0.95 },
+      },
+    });
+  });
+
+  await test("Jev provider maps typed answers without applying thresholds", async () => {
+    let request: any;
+    let requestOptions: any;
+    const provider = new JevDecisionProvider(() => ({
+      systemOne: async (nextRequest, nextOptions) => {
+        request = nextRequest;
+        requestOptions = nextOptions;
+        return {
+          model: "jev-1.13.0",
+          answers: {
+            outcome: {
+              type: "choice",
+              choice: "deny",
+              confidence: 0.61,
+              probabilities: { allow: 0.39, deny: 0.61 },
+            },
+            authorized: { type: "noul", noul: 0.8 },
+            safe: { type: "noul", noul: 0.4 },
+          },
+          usage: { input_tokens: 120, output_tokens: 8 },
+        };
+      },
+    }));
+    const result = await provider.classify({
+      state: {
+        action: { tool: "bash", input: { command: "npm publish" }, cwd: "/tmp", summary: "bash: npm publish" },
+        latestUserRequest: "Prepare the package",
+      },
+      policy: { allow: [], deny: ["Do not publish without explicit authorization."] },
+    }, {
+      model: "jev-latest",
+      timeoutMs: 5000,
+    });
+    assert.equal(request.model, "jev-latest");
+    assert.deepEqual(Object.keys(request.questions), ["outcome", "authorized", "safe"]);
+    assert.equal(requestOptions.timeout, 5000);
+    assert.deepEqual(result, {
+      outcome: "deny",
+      confidence: 0.61,
+      probabilities: { allow: 0.39, deny: 0.61 },
+      signals: {
+        authorized: 0.8,
+        safe: 0.4,
+        usage: { input_tokens: 120, output_tokens: 8 },
+      },
+      model: "jev-1.13.0",
+    });
+  });
+
+  await test("classifier cache is isolated by decision provider model", async () => {
+    let calls = 0;
+    const provider: DecisionProvider = {
+      id: "jev",
+      classify: async () => {
+        calls += 1;
+        return { outcome: "allow" };
+      },
+    };
+    const store = new SessionApprovalStore();
+    const event = { toolName: "bash", input: { command: "npm install" } };
+    const providers = new Map([["jev", provider]]);
+    const first = config({ mode: "auto", classifier: { engine: "decision", provider: "jev", model: "jev-a" } });
+    const second = config({ mode: "auto", classifier: { engine: "decision", provider: "jev", model: "jev-b" } });
+    assert.deepEqual(await evaluateToolCall(event, ctx(), first, store, { decisionProviders: providers }), {});
+    assert.deepEqual(await evaluateToolCall(event, ctx(), first, store, { decisionProviders: providers }), {});
+    assert.deepEqual(await evaluateToolCall(event, ctx(), second, store, { decisionProviders: providers }), {});
+    assert.equal(calls, 2);
   });
 
   await test("classifier receives latest user request for current approval", async () => {

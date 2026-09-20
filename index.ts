@@ -49,7 +49,16 @@ function parseCommandRest(args: string): string {
 }
 
 function classifierModelText(config: AutoReviewConfig): string {
-  return config.classifierModel ?? "current";
+  if (config.classifier.engine === "decision") {
+    return `${config.classifier.provider}/${config.classifier.model}`;
+  }
+  return config.classifier.model ?? "current";
+}
+
+function classifierEngineText(config: AutoReviewConfig): string {
+  return config.classifier.engine === "decision"
+    ? `decision (${config.classifier.provider}/${config.classifier.model})`
+    : "llm";
 }
 
 const COMMAND_ARGUMENTS = [
@@ -59,6 +68,9 @@ const COMMAND_ARGUMENTS = [
   { value: "auto", label: "auto", description: "AI review only; fail closed on failure or denial" },
   { value: "model", label: "model", description: "Select approval classifier model" },
   { value: "model current", label: "model current", description: "Use the active Pi session model for approval" },
+  { value: "classifier", label: "classifier", description: "Select LLM or structured decision classifier" },
+  { value: "classifier llm", label: "classifier llm", description: "Use the LLM classifier" },
+  { value: "classifier jev", label: "classifier jev", description: "Use Jev" },
 ];
 
 function getAutoReviewArgumentCompletions(argumentPrefix: string): Array<{ value: string; label: string; description: string }> | null {
@@ -122,16 +134,59 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
           if (selected === undefined) {
             break;
           }
-          persist({ ...config, classifierModel: selected }, ctx);
+          persist({
+            ...config,
+            classifierModel: selected,
+            classifier: { engine: "llm", model: selected },
+          }, ctx);
           notify(ctx, `approval classifier model: ${selected ?? "current"}`);
           break;
         }
         if (rest === "current") {
-          persist({ ...config, classifierModel: null }, ctx);
+          persist({
+            ...config,
+            classifierModel: null,
+            classifier: { engine: "llm", model: null },
+          }, ctx);
           notify(ctx, "approval classifier model: current");
           break;
         }
         notify(ctx, "Use /auto-approval model to select an approval classifier model.", "warning");
+        break;
+      }
+      case "classifier": {
+        let selected = rest;
+        if (!selected) {
+          selected = await ctx.ui?.select?.("Select approval classifier", [
+            "llm",
+            "jev",
+          ]) ?? "";
+        }
+        if (!selected) {
+          break;
+        }
+        if (selected === "llm") {
+          persist({
+            ...config,
+            classifier: { engine: "llm", model: config.classifierModel },
+          }, ctx);
+          notify(ctx, "approval classifier: llm");
+          break;
+        }
+        if (selected === "jev") {
+          persist({
+            ...config,
+            classifier: {
+              engine: "decision",
+              provider: "jev",
+              model: "jev-latest",
+            },
+          }, ctx);
+          approvals.clear();
+          notify(ctx, "approval classifier: jev/jev-latest");
+          break;
+        }
+        notify(ctx, "Use /auto-approval classifier to select llm or jev.", "warning");
         break;
       }
       case "status":
@@ -140,6 +195,7 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
           ctx,
           [
             `state: ${stateText(config)}`,
+            `approval classifier: ${classifierEngineText(config)}`,
             `approval classifier model: ${classifierModelText(config)}`,
             `config: ${configPath()}`,
             `audit log: ${logPath()}`,
@@ -150,7 +206,7 @@ export default function piAutoApprovalExtension(pi: ExtensionAPI): void {
   }
 
   pi.registerCommand?.("auto-approval", {
-    description: "args: status | off | fallback | auto | model",
+    description: "args: status | off | fallback | auto | classifier | model",
     getArgumentCompletions: getAutoReviewArgumentCompletions,
     handler: async (args, ctx) => {
       await runCommand(parseCommand(args), parseCommandRest(args), ctx);

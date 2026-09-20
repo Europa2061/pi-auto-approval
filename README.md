@@ -71,6 +71,9 @@ pi install https://github.com/Europa2061/pi-auto-approval
 | `/auto-approval off` | Disable automatic approval. Tool approvals return to Pi's normal behavior. |
 | `/auto-approval fallback` | Enable AI review with human approval fallback when the classifier denies or fails. |
 | `/auto-approval auto` | Enable AI review only. Classifier denial or failure blocks the tool call. |
+| `/auto-approval classifier` | Choose between the existing LLM classifier and Jev. |
+| `/auto-approval classifier llm` | Use the existing LLM classifier. |
+| `/auto-approval classifier jev` | Use Jev (`jev-latest`). |
 | `/auto-approval model` | Open the model selector for the approval classifier model. |
 | `/auto-approval model current` | Use the active Pi session model for approval classification. |
 
@@ -86,7 +89,7 @@ pi-auto-approval sits between Pi tool calls and the normal approval path:
 
 - command layer registers `/auto-approval` and persists local config;
 - routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions;
-- classifier layer projects recent session context and asks the selected model for a structured allow or deny decision;
+- classifier layer routes review to either the existing LLM classifier or a structured decision provider;
 - fallback layer asks the user when classifier review cannot safely approve;
 - audit layer writes JSONL records when auditing is enabled.
 
@@ -166,6 +169,33 @@ sequenceDiagram
 By default, the approval classifier uses the current Pi session model. Use `/auto-approval model` to choose another available model from Pi's model selector.
 
 The selected value is stored as `classifierModel` in `config.jsonc`. `null` means "use the current session model".
+
+### Jev
+
+Set `TYPESAFE_API_KEY`, then run:
+
+```text
+/auto-approval classifier jev
+```
+
+This selects the structured decision engine with the `jev` provider and `jev-latest` model. Jev is accessed through TypeSafe's SDK and returns an allow/deny choice plus confidence, probabilities, authorization, and safety signals. The current release uses only the allow/deny choice for approval; the other values are recorded as decision metadata for future policy and calibration support.
+
+Equivalent `config.jsonc`:
+
+```json
+{
+  "classifier": {
+    "engine": "decision",
+    "provider": "jev",
+    "model": "jev-latest",
+    "timeoutSeconds": 10
+  }
+}
+```
+
+The legacy `classifierModel` setting remains supported. Selecting a model with `/auto-approval model` switches back to the LLM classifier.
+
+Decision providers receive a minimal structured state containing the pending action, latest user request, environment guidance, and approval policy. Recent tool output is not sent, and common credential fields and token patterns are redacted before the request.
 
 ## References
 

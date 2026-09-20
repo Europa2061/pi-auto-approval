@@ -7,6 +7,31 @@
     "enabled": { "type": "boolean", "default": false },
     "mode": { "type": "string", "enum": ["fallback", "auto"], "default": "fallback" },
     "classifierModel": { "type": ["string", "null"], "default": null },
+    "classifier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engine", "model"],
+          "properties": {
+            "engine": { "const": "llm" },
+            "model": { "type": ["string", "null"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engine", "provider", "model"],
+          "properties": {
+            "engine": { "const": "decision" },
+            "provider": { "type": "string", "minLength": 1 },
+            "model": { "type": "string", "minLength": 1 },
+            "timeoutSeconds": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      ],
+      "default": { "engine": "llm", "model": null }
+    },
     "approvalTimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "default": 30 },
     "classifierTimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "default": 90 },
     "maxConsecutiveDenials": { "type": "number", "exclusiveMinimum": 0, "default": 3 },

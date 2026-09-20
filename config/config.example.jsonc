@@ -2,6 +2,11 @@
   "enabled": false,
   "mode": "fallback",
   "classifierModel": null,
+  // New classifier configuration. The legacy classifierModel above remains supported.
+  "classifier": {
+    "engine": "llm",
+    "model": null
+  },
   "approvalTimeoutSeconds": 30,
   "classifierTimeoutSeconds": 90,
   "maxConsecutiveDenials": 3,

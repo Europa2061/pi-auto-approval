@@ -1,5 +1,13 @@
-import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ReviewSubject } from "./types.js";
+import type {
+  ApprovalClassifier,
+  AutoReviewConfig,
+  DecisionProvider,
+  ExtensionContextLike,
+  ReviewDecision,
+  ReviewSubject,
+} from "./types.js";
 import { buildProjectedContext } from "./context-projection.js";
+import { DecisionClassifier, type DecisionProviderRegistry } from "./decision-classifier.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { getProviderAttributionHeaders, isProviderAttributionEnabled } from "./provider-attribution.js";
 import { toRecord } from "./common.js";
@@ -120,12 +128,13 @@ function splitModelRef(modelRef: string, currentModel: Record<string, unknown>):
 
 function resolveClassifierModel(ctx: ExtensionContextLike, config: AutoReviewConfig): unknown {
   const currentModel = ctx.model;
-  if (!config.classifierModel) {
+  const classifierModel = config.classifier.engine === "llm" ? config.classifier.model : null;
+  if (!classifierModel) {
     return currentModel;
   }
 
   const currentModelRecord = toRecord(currentModel);
-  const { provider, id } = splitModelRef(config.classifierModel, currentModelRecord);
+  const { provider, id } = splitModelRef(classifierModel, currentModelRecord);
   const registry = toRecord(ctx.modelRegistry);
   if (provider && typeof registry.find === "function") {
     const found = registry.find(provider, id);
@@ -180,7 +189,7 @@ async function resolveRequestAuth(
   return auth;
 }
 
-export async function classifyAction(
+export async function classifyWithLlm(
   ctx: ExtensionContextLike,
   config: AutoReviewConfig,
   subject: ReviewSubject,
@@ -236,4 +245,44 @@ export async function classifyAction(
     throw new Error("Classifier returned no text.");
   }
   return parseReviewDecision(responseText);
+}
+
+export class LlmClassifier implements ApprovalClassifier {
+  constructor(private readonly client?: ClassifierClient) {}
+
+  classify(
+    ctx: ExtensionContextLike,
+    config: AutoReviewConfig,
+    subject: ReviewSubject,
+  ): Promise<ReviewDecision> {
+    return classifyWithLlm(ctx, config, subject, this.client);
+  }
+}
+
+export interface ClassifierDependencies {
+  llmClient?: ClassifierClient;
+  decisionProviders?: DecisionProviderRegistry | ReadonlyMap<string, DecisionProvider>;
+}
+
+export function createApprovalClassifier(
+  config: AutoReviewConfig,
+  dependencies: ClassifierDependencies = {},
+): ApprovalClassifier {
+  if (config.classifier.engine === "decision") {
+    return new DecisionClassifier(dependencies.decisionProviders);
+  }
+  return new LlmClassifier(dependencies.llmClient);
+}
+
+export function classifyAction(
+  ctx: ExtensionContextLike,
+  config: AutoReviewConfig,
+  subject: ReviewSubject,
+  client?: ClassifierClient,
+  decisionProviders?: DecisionProviderRegistry,
+): Promise<ReviewDecision> {
+  return createApprovalClassifier(config, {
+    llmClient: client,
+    decisionProviders,
+  }).classify(ctx, config, subject);
 }

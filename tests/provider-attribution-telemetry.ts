@@ -7,6 +7,7 @@ const config: AutoReviewConfig = {
   enabled: true,
   mode: "auto",
   classifierModel: "openrouter/some-model",
+  classifier: { engine: "llm", model: "openrouter/some-model" },
   approvalTimeoutSeconds: 30,
   classifierTimeoutSeconds: 30,
   maxConsecutiveDenials: 3,

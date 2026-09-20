@@ -71,6 +71,9 @@ pi install https://github.com/Europa2061/pi-auto-approval
 | `/auto-approval off` | 关闭自动审批。工具审批回到 Pi 的默认行为。 |
 | `/auto-approval fallback` | 开启 AI 审批；当分类器拒绝或失败时，回退到人工审批。 |
 | `/auto-approval auto` | 只使用 AI 审批。分类器拒绝或失败时直接阻止工具调用。 |
+| `/auto-approval classifier` | 在现有 LLM 分类器和 Jev 之间选择。 |
+| `/auto-approval classifier llm` | 使用现有 LLM 分类器。 |
+| `/auto-approval classifier jev` | 使用 Jev（`jev-latest`）。 |
 | `/auto-approval model` | 打开审批分类器模型选择器。 |
 | `/auto-approval model current` | 使用当前 Pi 会话模型作为审批分类器模型。 |
 
@@ -86,7 +89,7 @@ pi-auto-approval 位于 Pi 工具调用和默认审批路径之间：
 
 - 命令层注册 `/auto-approval` 并持久化本地配置；
 - 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；
-- 分类器层投影最近会话上下文，并让选定模型返回结构化允许或拒绝决策；
+- 分类器层将审批请求路由到现有 LLM 分类器或结构化决策 Provider；
 - 兜底层在分类器无法安全放行时请求人工审批；
 - 审计层在启用审计时写入 JSONL 记录。
 
@@ -166,6 +169,33 @@ sequenceDiagram
 默认情况下，审批分类器使用当前 Pi 会话模型。使用 `/auto-approval model` 可以从 Pi 的模型选择器中选择另一个可用模型。
 
 选中的值会保存为 `config.jsonc` 中的 `classifierModel`。`null` 表示“使用当前会话模型”。
+
+### Jev
+
+先设置 `TYPESAFE_API_KEY`，然后运行：
+
+```text
+/auto-approval classifier jev
+```
+
+该命令会选择结构化决策引擎，Provider 为 `jev`，模型为 `jev-latest`。底层通过 TypeSafe SDK 访问 Jev；Jev 会返回 allow/deny 选择、置信度、概率、用户授权和安全性信号。当前版本只使用 allow/deny 结果执行审批，其余值仅作为 decision metadata 记录，为后续策略和校准功能预留。
+
+等价的 `config.jsonc` 配置：
+
+```json
+{
+  "classifier": {
+    "engine": "decision",
+    "provider": "jev",
+    "model": "jev-latest",
+    "timeoutSeconds": 10
+  }
+}
+```
+
+旧的 `classifierModel` 配置继续兼容。通过 `/auto-approval model` 选择模型时，会切回 LLM 分类器。
+
+Decision Provider 只接收最小化的结构化状态：待执行动作、最近一条用户请求、环境说明和审批策略；不会发送最近的工具输出，并会在请求前脱敏常见凭据字段和 token 形式。
 
 ## 参考来源
 

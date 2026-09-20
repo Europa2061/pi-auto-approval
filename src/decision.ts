@@ -1,5 +1,6 @@
-import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ToolCallEventLike } from "./types.js";
+import type { AutoReviewConfig, ClassifierIdentity, DecisionProvider, ExtensionContextLike, ReviewDecision, ToolCallEventLike } from "./types.js";
 import { classifyAction, type ClassifierClient } from "./classifier.js";
+import { classifierCacheKey, getClassifierIdentity } from "./classifier-identity.js";
 import { writeAudit } from "./logging.js";
 import { isSafeReadOnlyCommand } from "./safe-command.js";
 import { SessionApprovalStore } from "./session-approval-store.js";
@@ -38,7 +39,7 @@ async function handleHumanFallback(
   config: AutoReviewConfig,
   store: SessionApprovalStore,
   subject: ReturnType<typeof createReviewSubject>,
-  auditBase: { started: number; route: "classifier" | "manual_only"; classifierDecision?: ReviewDecision; failureReason?: string },
+  auditBase: { started: number; route: "classifier" | "manual_only"; classifierDecision?: ReviewDecision; classifier?: ClassifierIdentity; failureReason?: string },
 ): Promise<ToolCallDecision> {
   const human = await requestHumanApproval(ctx, subject, {
     classifierDecision: auditBase.classifierDecision,
@@ -60,6 +61,7 @@ async function handleHumanFallback(
       actionHash: subject.actionHash,
       outcome: "allow",
       classifierDecision: auditBase.classifierDecision,
+      classifier: auditBase.classifier,
       humanDecision: human.persistence,
       durationMs: Date.now() - auditBase.started,
     });
@@ -80,6 +82,7 @@ async function handleHumanFallback(
     actionHash: subject.actionHash,
     outcome: "deny",
     classifierDecision: auditBase.classifierDecision,
+    classifier: auditBase.classifier,
     humanDecision: human.state,
     reason,
     durationMs: Date.now() - auditBase.started,
@@ -95,6 +98,7 @@ export async function evaluateToolCall(
   options: {
     tools?: unknown[];
     classifierClient?: ClassifierClient;
+    decisionProviders?: ReadonlyMap<string, DecisionProvider>;
   } = {},
 ): Promise<ToolCallDecision> {
   const started = Date.now();
@@ -110,6 +114,8 @@ export async function evaluateToolCall(
   const input = getToolInput(event);
   const subject = createReviewSubject(toolName, input, cwd);
   const toolDefinition = findToolDefinition(toolName, options.tools ?? []);
+  const classifier = getClassifierIdentity(ctx, config);
+  const decisionCacheKey = classifierCacheKey(subject.actionHash, classifier);
 
   if (isReadOnlyTool(toolName, toolDefinition)) {
     await writeAudit(config, {
@@ -193,7 +199,7 @@ export async function evaluateToolCall(
     return {};
   }
 
-  const cached = store.getCachedDecision(subject.actionHash);
+  const cached = store.getCachedDecision(decisionCacheKey);
   if (cached) {
     if (cached.outcome === "allow") {
       store.recordNonDenial();
@@ -206,6 +212,7 @@ export async function evaluateToolCall(
         actionHash: subject.actionHash,
         outcome: "allow",
         classifierDecision: cached,
+        classifier,
         durationMs: Date.now() - started,
       });
       return {};
@@ -215,6 +222,7 @@ export async function evaluateToolCall(
         started,
         route: "classifier",
         classifierDecision: cached,
+        classifier,
       });
     }
     store.recordDenial();
@@ -223,14 +231,15 @@ export async function evaluateToolCall(
 
   let classifierDecision: ReviewDecision | undefined;
   try {
-    classifierDecision = await classifyAction(ctx, config, subject, options.classifierClient);
-    store.cacheDecision(subject.actionHash, classifierDecision);
+    classifierDecision = await classifyAction(ctx, config, subject, options.classifierClient, options.decisionProviders);
+    store.cacheDecision(decisionCacheKey, classifierDecision);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (config.mode === "fallback" && ctx.hasUI) {
       return handleHumanFallback(ctx, config, store, subject, {
         started,
         route: "classifier",
+        classifier,
         failureReason: reason,
       });
     }
@@ -238,6 +247,7 @@ export async function evaluateToolCall(
     await writeAudit(config, {
       event: "decision",
       route: "classifier",
+      classifier,
       mode: config.mode,
       toolName,
       actionSummary: subject.actionSummary,
@@ -260,6 +270,7 @@ export async function evaluateToolCall(
       actionHash: subject.actionHash,
       outcome: "allow",
       classifierDecision,
+      classifier,
       durationMs: Date.now() - started,
     });
     return {};
@@ -271,6 +282,7 @@ export async function evaluateToolCall(
       started,
       route: "classifier",
       classifierDecision,
+      classifier,
     });
   }
 
@@ -283,6 +295,7 @@ export async function evaluateToolCall(
     actionHash: subject.actionHash,
     outcome: "deny",
     classifierDecision,
+    classifier,
     reason: classifierDecision.rationale,
     durationMs: Date.now() - started,
   });

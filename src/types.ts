@@ -1,5 +1,26 @@
 export type AutoReviewMode = "fallback" | "auto";
 
+export interface LlmClassifierConfig {
+  engine: "llm";
+  model: string | null;
+}
+
+export interface DecisionClassifierConfig {
+  engine: "decision";
+  provider: string;
+  model: string;
+  timeoutSeconds?: number;
+}
+
+export type ClassifierConfig = LlmClassifierConfig | DecisionClassifierConfig;
+
+export interface ClassifierIdentity {
+  engine: ClassifierConfig["engine"];
+  provider?: string;
+  model: string;
+  policyVersion: string;
+}
+
 export interface AuthResolution {
   ok: boolean;
   apiKey?: string;
@@ -12,6 +33,7 @@ export interface AutoReviewConfig {
   enabled: boolean;
   mode: AutoReviewMode;
   classifierModel: string | null;
+  classifier: ClassifierConfig;
   approvalTimeoutSeconds: number;
   classifierTimeoutSeconds: number;
   maxConsecutiveDenials: number;
@@ -22,11 +44,70 @@ export interface AutoReviewConfig {
   audit: boolean;
 }
 
+export interface ReviewDecisionMetadata {
+  engine?: string;
+  provider?: string;
+  model?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+  signals?: Record<string, unknown>;
+}
+
 export interface ReviewDecision {
   risk_level?: "low" | "medium" | "high" | "critical";
   user_authorization?: "unknown" | "low" | "medium" | "high";
   outcome: "allow" | "deny";
   rationale?: string;
+  metadata?: ReviewDecisionMetadata;
+}
+
+export interface ApprovalState {
+  action: {
+    tool: string;
+    input: unknown;
+    cwd: string;
+    summary: string;
+  };
+  latestUserRequest?: string;
+  environment?: string;
+}
+
+export interface ApprovalPolicy {
+  allow: string[];
+  deny: string[];
+}
+
+export interface DecisionInput {
+  state: ApprovalState;
+  policy: ApprovalPolicy;
+}
+
+export interface DecisionResult {
+  outcome: "allow" | "deny";
+  rationale?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+  signals?: Record<string, unknown>;
+  model?: string;
+}
+
+export interface DecisionProviderOptions {
+  model: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export interface DecisionProvider {
+  readonly id: string;
+  classify(input: DecisionInput, options: DecisionProviderOptions): Promise<DecisionResult>;
+}
+
+export interface ApprovalClassifier {
+  classify(
+    ctx: ExtensionContextLike,
+    config: AutoReviewConfig,
+    subject: ReviewSubject,
+  ): Promise<ReviewDecision>;
 }
 
 export interface ToolCallEventLike {
@@ -106,6 +187,7 @@ export interface AuditEntry {
   actionHash: string;
   outcome: "allow" | "deny";
   classifierDecision?: ReviewDecision;
+  classifier?: ClassifierIdentity;
   humanDecision?: string;
   reason?: string;
   durationMs?: number;

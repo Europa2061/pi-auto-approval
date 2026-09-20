@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AutoReviewConfig, AutoReviewMode } from "./types.js";
+import type { AutoReviewConfig, AutoReviewMode, ClassifierConfig } from "./types.js";
 import { toRecord } from "./common.js";
 
 export const EXTENSION_ID = "pi-auto-approval";
@@ -10,6 +10,10 @@ export const DEFAULT_CONFIG: AutoReviewConfig = {
   enabled: false,
   mode: "fallback",
   classifierModel: null,
+  classifier: {
+    engine: "llm",
+    model: null,
+  },
   approvalTimeoutSeconds: 30,
   classifierTimeoutSeconds: 90,
   maxConsecutiveDenials: 3,
@@ -58,14 +62,49 @@ function normalizeMode(value: unknown): AutoReviewMode {
   return value === "auto" ? "auto" : "fallback";
 }
 
+function optionalModel(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeClassifier(value: unknown, legacyModel: string | null): ClassifierConfig {
+  const classifier = toRecord(value);
+  if (classifier.engine === "decision") {
+    const provider = optionalModel(classifier.provider);
+    const model = optionalModel(classifier.model);
+    if (provider && model) {
+      const timeoutSeconds = typeof classifier.timeoutSeconds === "number"
+        && Number.isFinite(classifier.timeoutSeconds)
+        && classifier.timeoutSeconds > 0
+        ? classifier.timeoutSeconds
+        : undefined;
+      return {
+        engine: "decision",
+        provider,
+        model,
+        ...(timeoutSeconds !== undefined ? { timeoutSeconds } : {}),
+      };
+    }
+  }
+  if (classifier.engine === "llm") {
+    return {
+      engine: "llm",
+      model: optionalModel(classifier.model),
+    };
+  }
+  return {
+    engine: "llm",
+    model: legacyModel,
+  };
+}
+
 export function normalizeConfig(raw: unknown): AutoReviewConfig {
   const record = toRecord(raw);
+  const classifierModel = optionalModel(record.classifierModel);
   return {
     enabled: record.enabled === true,
     mode: normalizeMode(record.mode),
-    classifierModel: typeof record.classifierModel === "string" && record.classifierModel.trim()
-      ? record.classifierModel.trim()
-      : null,
+    classifierModel,
+    classifier: normalizeClassifier(record.classifier, classifierModel),
     approvalTimeoutSeconds: positiveNumber(record.approvalTimeoutSeconds, DEFAULT_CONFIG.approvalTimeoutSeconds),
     classifierTimeoutSeconds: positiveNumber(record.classifierTimeoutSeconds, DEFAULT_CONFIG.classifierTimeoutSeconds),
     maxConsecutiveDenials: positiveNumber(record.maxConsecutiveDenials, DEFAULT_CONFIG.maxConsecutiveDenials),
