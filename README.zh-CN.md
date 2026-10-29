@@ -85,7 +85,7 @@ pi install https://github.com/Europa2061/pi-auto-approval
 pi-auto-approval 位于 Pi 工具调用和默认审批路径之间：
 
 - 命令层注册 `/auto-approval` 并持久化本地配置；
-- 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；
+- 路由层快速处理关闭、只读、工作区安全、会话已批准等动作；读取敏感文件（`.env`、`.envrc`、SSH 密钥、`*.pem`、云凭证）不走快速路径，会交给审批；
 - 分类器层投影最近会话上下文，并让选定模型返回结构化允许或拒绝决策；
 - 兜底层在分类器无法安全放行时请求人工审批；
 - 审计层在启用审计时写入 JSONL 记录。
@@ -108,7 +108,7 @@ sequenceDiagram
 
     alt 状态为 off
         Ext-->>Pi: 不做决策，使用 Pi 默认行为
-    else 只读工具、工作区内部写入或安全只读 bash 命令
+    else 只读工具（非敏感文件）、工作区内部写入或安全只读 bash 命令
         Ext-->>Pi: 放行
         Pi->>Tool: 执行工具调用
     else 当前会话已精确批准同一动作

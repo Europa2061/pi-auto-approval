@@ -85,7 +85,7 @@ pi install https://github.com/Europa2061/pi-auto-approval
 pi-auto-approval sits between Pi tool calls and the normal approval path:
 
 - command layer registers `/auto-approval` and persists local config;
-- routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions;
+- routing layer fast-paths disabled, read-only, workspace-safe, and session-approved actions; reads of secret files (`.env`, `.envrc`, SSH keys, `*.pem`, cloud credentials) are not fast-pathed and go to review;
 - classifier layer projects recent session context and asks the selected model for a structured allow or deny decision;
 - fallback layer asks the user when classifier review cannot safely approve;
 - audit layer writes JSONL records when auditing is enabled.
@@ -108,7 +108,7 @@ sequenceDiagram
 
     alt state is off
         Ext-->>Pi: No decision, use normal Pi behavior
-    else read-only tool, workspace-internal write, or safe read-only bash command
+    else read-only tool (not on a secret file), workspace-internal write, or safe read-only bash command
         Ext-->>Pi: Allow
         Pi->>Tool: Execute tool call
     else exact action already approved in this session

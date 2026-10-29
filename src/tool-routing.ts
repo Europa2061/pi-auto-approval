@@ -18,6 +18,45 @@ const READ_ONLY_TOOLS = new Set([
 
 const PATH_KEYS = ["path", "file_path", "filepath", "target", "targetPath"];
 
+// Files whose contents are secrets. Reading them is not a harmless read: the
+// contents enter the agent's context and can leak through later tool calls.
+const SENSITIVE_BASENAMES = [
+  /^\.env$/,
+  /^\.envrc$/,
+  /^\.env\.(?!example$|sample$|template$|dist$).+$/,
+  /^\.netrc$/,
+  /^\.npmrc$/,
+  /^\.pypirc$/,
+  /^\.git-credentials$/,
+  /^id_(rsa|dsa|ecdsa|ed25519)(_sk)?$/,
+  /\.(pem|key|p12|pfx|jks|keystore)$/,
+  /^credentials(\.json)?$/,
+  /^application_default_credentials\.json$/,
+  /^service[-_]?account.*\.json$/,
+];
+
+const SENSITIVE_DIRS = new Set([".ssh", ".aws", ".gnupg", ".kube", ".docker", "gcloud"]);
+
+export function isSensitivePath(pathValue: string): boolean {
+  const segments = pathValue.split(/[\\/]+/).filter(Boolean);
+  if (segments.some((segment) => SENSITIVE_DIRS.has(segment))) {
+    return true;
+  }
+  const base = segments[segments.length - 1] ?? "";
+  return SENSITIVE_BASENAMES.some((pattern) => pattern.test(base));
+}
+
+// A grep glob such as ".env*" targets secrets even when the path is a directory.
+export function readsSensitivePath(input: unknown): boolean {
+  const record = toRecord(input);
+  const pathValue = getPathFromInput(input);
+  if (pathValue && isSensitivePath(pathValue)) {
+    return true;
+  }
+  const glob = getString(record.glob);
+  return Boolean(glob && /(^|[\\/])(\.env|\.ssh|\.aws|id_)|\.(pem|key)\b/.test(glob));
+}
+
 export function getToolName(event: ToolCallEventLike): string | null {
   const direct = getString(event.toolName) ?? getString(event.name);
   if (direct) {

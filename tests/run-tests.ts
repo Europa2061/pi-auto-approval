@@ -10,6 +10,7 @@ import { evaluateToolCall } from "../src/decision.js";
 import { columnWidth, truncateVisible } from "../src/model-selector.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
+import { isSensitivePath } from "../src/tool-routing.js";
 import { getProviderAttributionHeaders } from "../src/provider-attribution.js";
 import type { AutoReviewConfig, ExtensionContextLike } from "../src/types.js";
 
@@ -184,6 +185,71 @@ async function run(): Promise<void> {
       },
     );
     assert.deepEqual(result, {});
+  });
+
+  await test("sensitive path detection covers secret files and skips templates", () => {
+    for (const path of [
+      ".env",
+      "/tmp/workspace/.env.local",
+      ".envrc",
+      "~/.ssh/config",
+      "/home/user/.aws/credentials",
+      "id_ed25519",
+      "certs/server.pem",
+      "/home/user/.config/gcloud/application_default_credentials.json",
+    ]) {
+      assert.equal(isSensitivePath(path), true, path);
+    }
+    for (const path of [".env.example", ".env.sample", "src/env.ts", "README.md", "/tmp/workspace/a.ts"]) {
+      assert.equal(isSensitivePath(path), false, path);
+    }
+  });
+
+  await test("read-only fast path sends sensitive reads to the classifier", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "read", input: { path: "/tmp/workspace/.env" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      classifierDenyOptions(),
+    );
+    assert.deepEqual(result, { block: true, reason: CLASSIFIER_DENY_REASON });
+  });
+
+  await test("read-only fast path still allows env templates without the classifier", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "read", input: { path: "/tmp/workspace/.env.example" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      { classifierClient: async () => { throw new Error("env template read should not call classifier"); } },
+    );
+    assert.deepEqual(result, {});
+  });
+
+  await test("read-only fast path sends grep globs targeting secrets to the classifier", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "grep", input: { pattern: "TOKEN", path: "/tmp/workspace", glob: ".env*" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      classifierDenyOptions(),
+    );
+    assert.deepEqual(result, { block: true, reason: CLASSIFIER_DENY_REASON });
+  });
+
+  await test("trusted read-only metadata does not bypass review for sensitive paths", async () => {
+    const result = await evaluateToolCall(
+      { toolName: "custom_report", input: { path: "/home/user/.ssh/id_rsa" } },
+      ctx(),
+      config({ mode: "auto" }),
+      new SessionApprovalStore(),
+      {
+        tools: [{ name: "custom_report", annotations: { readOnlyHint: true } }],
+        ...classifierDenyOptions(),
+      },
+    );
+    assert.deepEqual(result, { block: true, reason: CLASSIFIER_DENY_REASON });
   });
 
   await test("workspace write fast path rejects symlink escape", async () => {

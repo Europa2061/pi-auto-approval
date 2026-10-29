@@ -11,6 +11,7 @@ import {
   isManualOnlyTool,
   isReadOnlyTool,
   isWorkspaceInternalPath,
+  readsSensitivePath,
 } from "./tool-routing.js";
 import { getString, toRecord } from "./common.js";
 import { requestHumanApproval } from "./human-approval.js";
@@ -111,7 +112,7 @@ export async function evaluateToolCall(
   const subject = createReviewSubject(toolName, input, cwd);
   const toolDefinition = findToolDefinition(toolName, options.tools ?? []);
 
-  if (isReadOnlyTool(toolName, toolDefinition)) {
+  if (isReadOnlyTool(toolName, toolDefinition) && !readsSensitivePath(input)) {
     await writeAudit(config, {
       event: "decision",
       route: "readonly",
