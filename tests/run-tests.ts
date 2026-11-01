@@ -7,9 +7,11 @@ import { classifyAction, parseReviewDecision } from "../src/classifier.js";
 import { buildProjectedContext } from "../src/context-projection.js";
 import { configPath, DEFAULT_CONFIG, loadConfig, logsDir, normalizeConfig } from "../src/extension-config.js";
 import { evaluateToolCall } from "../src/decision.js";
+import { columnWidth, truncateVisible } from "../src/model-selector.js";
 import { isSafeReadOnlyCommand } from "../src/safe-command.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
 import { TraceStore } from "../src/trace-store.js";
+import { getProviderAttributionHeaders } from "../src/provider-attribution.js";
 import type { AutoReviewConfig, ExtensionContextLike } from "../src/types.js";
 
 function test(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -440,6 +442,81 @@ async function run(): Promise<void> {
     }
   });
 
+  await test("model selector truncates every rendered line to the terminal width", async () => {
+    // truncateVisible unit checks: ellipsis reserved, ANSI preserved + reset,
+    // CJK counted as two columns.
+    assert.equal(truncateVisible("abcdef", 3), "abc");
+    assert.equal(truncateVisible("abcdef", 5), "ab...");
+    assert.equal(truncateVisible("abcdef", 10), "abcdef");
+    assert.equal(truncateVisible("\u001b[31mabcdef\u001b[0m", 5), "\u001b[31mab\u001b[0m...");
+    assert.equal(truncateVisible("中文ab", 5), "中...");
+    assert.equal(truncateVisible("中文ab", 4), "...");
+    assert.equal(truncateVisible("", 10), "");
+    assert.equal(truncateVisible("abcdef", 0), "");
+
+    const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
+    const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    process.env.PI_AUTO_APPROVAL_CONFIG_PATH = join(dir, "config.jsonc");
+    const commandHandlers = new Map<string, (args: string, context: ExtensionContextLike) => Promise<void> | void>();
+    piAutoApprovalExtension({
+      on: () => {},
+      registerCommand: (name, definition) => {
+        commandHandlers.set(name, definition.handler);
+      },
+    });
+
+    let rendered: string[] = [];
+    await commandHandlers.get("auto-approval")?.("model", ctx({
+      mode: "tui",
+      ui: {
+        notify: () => {},
+        custom: async (factory) => new Promise((resolve) => {
+          const component = factory(
+            { requestRender: () => {} },
+            { fg: (_name: string, text: string) => text, bold: (text: string) => text },
+            {},
+            resolve,
+          ) as { render: (width: number) => string[]; handleInput: (data: string) => void };
+          // A model id long enough that the rendered row would overflow a
+          // narrow terminal if lines were not truncated.
+          rendered = component.render(20);
+          // Resolve the custom UI promise (select the current item) so the
+          // command handler can finish; otherwise the test hangs forever.
+          component.handleInput("\n");
+        }),
+      },
+      modelRegistry: {
+        getAvailable: () => [
+          { provider: "review-provider", id: "a-very-long-model-name-that-would-overflow-the-terminal-width", name: "A Very Long Model Name That Would Overflow" },
+          { provider: "other-provider", id: "other-model", name: "Other Model" },
+        ],
+      },
+    }));
+
+    const lineWidth = (line: string): number => {
+      let width = 0;
+      for (const part of line.split(/\x1b\[[0-9;]*m/)) {
+        for (const char of part) {
+          width += columnWidth(char);
+        }
+      }
+      return width;
+    };
+    // Regression: pi crashes with "Rendered line exceeds terminal width" when
+    // a custom TUI component emits a line wider than the terminal.
+    for (const line of rendered) {
+      assert.ok(lineWidth(line) <= 20, `rendered line exceeds width: ${JSON.stringify(line)}`);
+    }
+    assert.equal(rendered.some((line) => line.includes("...")), true);
+
+    rmSync(dir, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
+    } else {
+      process.env.PI_AUTO_APPROVAL_CONFIG_PATH = previousConfigPath;
+    }
+  });
+
   await test("auto-approval model command does not accept model IDs as arguments", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-auto-approval-config-"));
     const previousConfigPath = process.env.PI_AUTO_APPROVAL_CONFIG_PATH;
@@ -795,6 +872,95 @@ async function run(): Promise<void> {
     assert.deepEqual(capturedOptions?.headers, { "X-Custom-Header": "yes" });
     assert.deepEqual(capturedOptions?.env, { PROXY_REGION: "eu" });
     assert.equal((capturedModel as { provider?: string }).provider, "my-proxy");
+  });
+
+  await test("getProviderAttributionHeaders mirrors pi core provider matching", () => {
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "openrouter", baseUrl: "https://openrouter.ai/api/v1" }), {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+    // Custom provider pointed at the OpenRouter host is attributed too.
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://openrouter.ai/api/v1" }), {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "nvidia", baseUrl: "https://integrate.api.nvidia.com/v1" }), {
+      "X-BILLING-INVOKE-ORIGIN": "Pi",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://integrate.api.nvidia.com/v1" }), {
+      "X-BILLING-INVOKE-ORIGIN": "Pi",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "cloudflare-workers-ai", baseUrl: "https://api.cloudflare.com" }), {
+      "User-Agent": "pi-coding-agent",
+    });
+    assert.deepEqual(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://gateway.ai.cloudflare.com/v1" }), {
+      "User-Agent": "pi-coding-agent",
+    });
+    assert.equal(getProviderAttributionHeaders({ provider: "my-proxy", baseUrl: "https://my-proxy.example/v1" }), undefined);
+    assert.equal(getProviderAttributionHeaders({ id: "test", api: "test" }), undefined);
+    assert.equal(getProviderAttributionHeaders(undefined), undefined);
+  });
+
+  await test("classifier injects pi provider attribution headers for OpenRouter models", async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    const decision = await classifyAction(
+      ctx({
+        modelRegistry: {
+          find: (provider, id) => ({
+            id,
+            api: "openai-completions",
+            provider,
+            baseUrl: "https://openrouter.ai/api/v1",
+          }),
+          getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "openrouter-key" }),
+        },
+      }),
+      config({ classifierModel: "openrouter/some-model" }),
+      { toolName: "bash", input: { command: "pwd" }, cwd: "/tmp", actionSummary: "bash: pwd", actionHash: "x" },
+      async (_model, _context, options) => {
+        capturedOptions = options as Record<string, unknown>;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.equal(decision.outcome, "allow");
+    assert.deepEqual(capturedOptions?.headers, {
+      "HTTP-Referer": "https://pi.dev",
+      "X-OpenRouter-Title": "pi",
+      "X-OpenRouter-Categories": "cli-agent",
+    });
+  });
+
+  await test("classifier attribution headers merge under registry headers", async () => {
+    // Registry-provided headers must win on conflict, matching pi core's
+    // merge order where header sources override the attribution defaults.
+    let capturedOptions: Record<string, unknown> | undefined;
+    const decision = await classifyAction(
+      ctx({
+        modelRegistry: {
+          find: (provider, id) => ({
+            id,
+            api: "openai-completions",
+            provider,
+            baseUrl: "https://gateway.ai.cloudflare.com/v1",
+          }),
+          getApiKeyAndHeaders: async () => ({
+            ok: true,
+            apiKey: "cf-key",
+            headers: { "User-Agent": "custom-agent", "X-Extra": "1" },
+          }),
+        },
+      }),
+      config({ classifierModel: "my-cf/some-model" }),
+      { toolName: "bash", input: { command: "pwd" }, cwd: "/tmp", actionSummary: "bash: pwd", actionHash: "x" },
+      async (_model, _context, options) => {
+        capturedOptions = options as Record<string, unknown>;
+        return { content: [{ type: "text", text: '{"outcome":"allow"}' }] };
+      },
+    );
+    assert.equal(decision.outcome, "allow");
+    assert.deepEqual(capturedOptions?.headers, { "User-Agent": "custom-agent", "X-Extra": "1" });
   });
 
   await test("classifier surfaces auth resolution failure as deny reason", async () => {
