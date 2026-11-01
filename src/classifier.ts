@@ -1,8 +1,10 @@
 import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ReviewSubject } from "./types.js";
 import { buildProjectedContext } from "./context-projection.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { getProviderAttributionHeaders, isProviderAttributionEnabled } from "./provider-attribution.js";
 import { toRecord } from "./common.js";
+import { getProviderAttributionHeaders, isProviderAttributionEnabled } from "./provider-attribution.js";
+
+export { buildSystemPrompt, buildProjectedContext };
 
 export type ClassifierClient = (
   model: unknown,
@@ -214,7 +216,7 @@ export async function classifyAction(
       systemPrompt: buildSystemPrompt(config),
       messages: [{
         role: "user",
-        content: buildProjectedContext(ctx, subject),
+        content: buildProjectedContext(ctx, config, subject),
         timestamp: Date.now(),
       }],
     }, {

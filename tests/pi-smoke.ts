@@ -6,6 +6,7 @@ import piAutoApprovalExtension from "../index.js";
 import { evaluateToolCall } from "../src/decision.js";
 import { loadConfig, logPath } from "../src/extension-config.js";
 import { SessionApprovalStore } from "../src/session-approval-store.js";
+import { TraceStore } from "../src/trace-store.js";
 import type { ExtensionContextLike } from "../src/types.js";
 
 type CommandHandler = (args: string, ctx: ExtensionContextLike) => Promise<void> | void;
@@ -117,6 +118,7 @@ async function run(): Promise<void> {
       }),
       loadConfig().config,
       new SessionApprovalStore(),
+      new TraceStore(),
       {
         classifierClient: async () => ({
           content: [{ type: "text", text: '{"outcome":"deny","rationale":"remote script execution"}' }],
@@ -137,6 +139,7 @@ async function run(): Promise<void> {
       baseCtx(),
       autoConfig,
       new SessionApprovalStore(),
+      new TraceStore(),
       {
         classifierClient: async () => {
           throw new Error("safe command should not call classifier");
@@ -150,6 +153,7 @@ async function run(): Promise<void> {
       baseCtx(),
       autoConfig,
       new SessionApprovalStore(),
+      new TraceStore(),
       {
         classifierClient: async () => ({
           content: [{ type: "text", text: '{"outcome":"deny","rationale":"remote script execution"}' }],

@@ -1,8 +1,9 @@
-import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ToolCallEventLike } from "./types.js";
-import { classifyAction, type ClassifierClient } from "./classifier.js";
+import type { AutoReviewConfig, ExtensionContextLike, ReviewDecision, ToolCallEventLike, TraceEntry } from "./types.js";
+import { buildProjectedContext, buildSystemPrompt, classifyAction, type ClassifierClient } from "./classifier.js";
 import { writeAudit } from "./logging.js";
 import { isSafeReadOnlyCommand } from "./safe-command.js";
 import { SessionApprovalStore } from "./session-approval-store.js";
+import { TraceStore } from "./trace-store.js";
 import {
   createReviewSubject,
   findToolDefinition,
@@ -12,10 +13,34 @@ import {
   isReadOnlyTool,
   isWorkspaceInternalPath,
 } from "./tool-routing.js";
-import { getString, toRecord } from "./common.js";
+import { getString, sha256, toRecord } from "./common.js";
 import { requestHumanApproval } from "./human-approval.js";
 
 export type ToolCallDecision = {} | { block: true; reason: string };
+
+function buildTraceEntry(
+  config: AutoReviewConfig,
+  ctx: ExtensionContextLike,
+  subject: ReturnType<typeof createReviewSubject>,
+  decision?: ReviewDecision,
+  error?: string,
+  durationMs?: number,
+): TraceEntry {
+  return {
+    id: sha256(`${subject.actionHash}:${Date.now()}`),
+    timestamp: Date.now(),
+    toolName: subject.toolName,
+    actionSummary: subject.actionSummary,
+    actionHash: subject.actionHash,
+    outcome: error ? "error" : decision?.outcome ?? "error",
+    cwd: subject.cwd,
+    systemPrompt: buildSystemPrompt(config),
+    userMessage: buildProjectedContext(ctx, config, subject),
+    classifierDecision: decision,
+    error,
+    durationMs,
+  };
+}
 
 function deny(reason: string): ToolCallDecision {
   return { block: true, reason };
@@ -92,6 +117,7 @@ export async function evaluateToolCall(
   ctx: ExtensionContextLike,
   config: AutoReviewConfig,
   store: SessionApprovalStore,
+  traceStore: TraceStore,
   options: {
     tools?: unknown[];
     classifierClient?: ClassifierClient;
@@ -225,8 +251,10 @@ export async function evaluateToolCall(
   try {
     classifierDecision = await classifyAction(ctx, config, subject, options.classifierClient);
     store.cacheDecision(subject.actionHash, classifierDecision);
+    traceStore.add(buildTraceEntry(config, ctx, subject, classifierDecision, undefined, Date.now() - started));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    traceStore.add(buildTraceEntry(config, ctx, subject, undefined, reason, Date.now() - started));
     if (config.mode === "fallback" && ctx.hasUI) {
       return handleHumanFallback(ctx, config, store, subject, {
         started,

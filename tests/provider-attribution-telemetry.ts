@@ -14,6 +14,13 @@ const config: AutoReviewConfig = {
   allow: [],
   deny: [],
   environment: "",
+  transcriptContext: {
+    enabled: false,
+    tailUserMessages: 3,
+    tailAssistantMessages: 3,
+    maxLinesPerUserMessage: 50,
+    maxCharsPerAssistantMessage: 800,
+  },
   audit: false,
 };
 
